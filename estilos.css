@@ -330,6 +330,50 @@ th {
   font-style: italic;
 }
 
+
+#vista-years .vista-table-year tr {
+  border-bottom: 0;
+}
+
+#vista-years .vista-table-year thead tr {
+  border-top: 0;
+}
+#vista-years .vista-table-year {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid #c7d2e3;
+}
+
+#vista-years .vista-table-year th,
+#vista-years .vista-table-year td {
+  border-right: 1px solid #c7d2e3;
+  border-bottom: 1px solid #c7d2e3;
+  background-clip: padding-box;
+}
+
+#vista-years .vista-table-year th:last-child,
+#vista-years .vista-table-year td:last-child {
+  border-right: 0;
+}
+
+#vista-years .vista-table-year thead th {
+  border-bottom: 1px solid #c7d2e3;
+}
+
+#vista-years .vista-table-year tbody tr {
+  position: relative;
+}
+
+#vista-years .vista-table-year tbody tr::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-bottom: 1px solid #c7d2e3;
+  pointer-events: none;
+}
+
 .modal {
   position: fixed;
   inset: 0;
