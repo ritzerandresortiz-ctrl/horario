@@ -525,9 +525,9 @@ const renderVistaTablesByYear = (selection) => {
   const dias = getDiasArray(selection.turno);
   const safeDias = dias.length ? dias : ['Día'];
   const bloquesVista = getBloquesVista(selection.turno, getBloquesRequeridosPorSeleccion(selection));
-  const anio = Number(selection.anio || state.anioTrabajo || 1);
+  const anios = getAniosConDatos(selection);
 
-  container.innerHTML = [anio].map((anio) => {
+  container.innerHTML = anios.map((anio) => {
     const header = safeDias.map((dia) => `<th class="vista-dia-header">${dia}</th><th class="vista-aula-header">Aula</th>`).join('');
     const rows = bloquesVista.map((bloque, bloqueIndex) => {
       let cells = `<td>${bloque.codigo}<br><small>${bloque.hora}</small></td>`;
@@ -573,97 +573,101 @@ const renderDocentes = () => {
 };
 
 const paintSchedulesForAllYears = (selection) => {
-  const anio = Number(selection.anio || state.anioTrabajo || 1);
-  const yearSelection = { ...selection, anio };
-  const slots = getOrCreateSchedule(yearSelection);
+  const anios = getAniosConDatos(selection);
   const diasCount = Math.max(getDiasArray(selection.turno).length, 1);
-  const bloquesCount = Math.floor(slots.length / diasCount);
-  const claseCells = [...document.querySelectorAll(`#vista-years .vista-clase[data-anio="${anio}"]`)];
-  const aulaCells = [...document.querySelectorAll(`#vista-years .vista-aula[data-anio="${anio}"]`)];
-  const maxLength = Math.max(claseCells.length, aulaCells.length);
-  const clasesVisibles = [];
 
-  const resolveClaseVisible = (slotIndex) => {
-    const slot = slots[slotIndex];
-    const clase = safeString(slot?.clase).trim();
-    const esEtiquetaContinuacion = normalizeText(clase).includes('continuacion');
-    if (!slot?.esContinuacion && !esEtiquetaContinuacion) return clase || '-';
+  anios.forEach((anio) => {
+    const yearSelection = { ...selection, anio };
+    const slots = getOrCreateSchedule(yearSelection);
+    const bloquesCount = Math.floor(slots.length / diasCount);
+    const claseCells = [...document.querySelectorAll(`#vista-years .vista-clase[data-anio="${anio}"]`)];
+    const aulaCells = [...document.querySelectorAll(`#vista-years .vista-aula[data-anio="${anio}"]`)];
+    if (!claseCells.length && !aulaCells.length) return;
+    const maxLength = Math.max(claseCells.length, aulaCells.length);
+    const clasesVisibles = [];
 
-    for (let prev = slotIndex - diasCount; prev >= 0; prev -= diasCount) {
-      const anterior = slots[prev];
-      const claseAnterior = safeString(anterior?.clase).trim();
-      const anteriorEsContinuacion = Boolean(anterior?.esContinuacion)
-        || normalizeText(claseAnterior).includes('continuacion');
-      if (!anteriorEsContinuacion && claseAnterior && claseAnterior !== '-') return claseAnterior;
-    }
-    return '-';
-  };
+    const resolveClaseVisible = (slotIndex) => {
+      const slot = slots[slotIndex];
+      const clase = safeString(slot?.clase).trim();
+      const esEtiquetaContinuacion = normalizeText(clase).includes('continuacion');
+      if (!slot?.esContinuacion && !esEtiquetaContinuacion) return clase || '-';
 
-  for (let index = 0; index < maxLength; index += 1) {
-    clasesVisibles[index] = resolveClaseVisible(index);
-
-    if (claseCells[index]) {
-      claseCells[index].textContent = clasesVisibles[index];
-      claseCells[index].style.display = '';
-      claseCells[index].classList.remove('is-continuacion');
-      claseCells[index].removeAttribute('rowspan');
-    }
-    if (aulaCells[index]) {
-      aulaCells[index].textContent = slots[index]?.aula || '-';
-      aulaCells[index].style.display = '';
-      aulaCells[index].classList.remove('is-continuacion');
-      aulaCells[index].removeAttribute('rowspan');
-    }
-  }
-
-  const isClaseVacia = (value) => {
-    const normalized = normalizeText(value);
-    return !normalized || normalized === '-';
-  };
-
-  const shouldMergeWithNext = (baseIndex, nextIndex) => {
-    const baseClase = clasesVisibles[baseIndex];
-    const nextClase = clasesVisibles[nextIndex];
-    const baseAula = safeString(slots[baseIndex]?.aula).trim();
-    const nextAula = safeString(slots[nextIndex]?.aula).trim();
-    const nextSlot = slots[nextIndex];
-    const nextEsContinuacion = Boolean(nextSlot?.esContinuacion)
-      || normalizeText(nextSlot?.clase).includes('continuacion');
-
-    if (isClaseVacia(baseClase) || isClaseVacia(nextClase)) return false;
-    if (normalizeText(baseClase) !== normalizeText(nextClase)) return false;
-    if (baseAula && nextAula && normalizeText(baseAula) !== normalizeText(nextAula)) return false;
-
-    return nextEsContinuacion || normalizeText(baseClase) === normalizeText(nextClase);
-  };
-
-  for (let diaIndex = 0; diaIndex < diasCount; diaIndex += 1) {
-    for (let bloqueIndex = 0; bloqueIndex < bloquesCount; bloqueIndex += 1) {
-      const baseIndex = (bloqueIndex * diasCount) + diaIndex;
-      const baseClaseCell = claseCells[baseIndex];
-      const baseAulaCell = aulaCells[baseIndex];
-      if (!baseClaseCell || !baseAulaCell || baseClaseCell.style.display === 'none') continue;
-      if (isClaseVacia(clasesVisibles[baseIndex])) continue;
-
-      let span = 1;
-      while ((bloqueIndex + span) < bloquesCount) {
-        const nextIndex = ((bloqueIndex + span) * diasCount) + diaIndex;
-        if (!shouldMergeWithNext(baseIndex, nextIndex)) break;
-        span += 1;
+      for (let prev = slotIndex - diasCount; prev >= 0; prev -= diasCount) {
+        const anterior = slots[prev];
+        const claseAnterior = safeString(anterior?.clase).trim();
+        const anteriorEsContinuacion = Boolean(anterior?.esContinuacion)
+          || normalizeText(claseAnterior).includes('continuacion');
+        if (!anteriorEsContinuacion && claseAnterior && claseAnterior !== '-') return claseAnterior;
       }
+      return '-';
+    };
 
-      if (span <= 1) continue;
+    for (let index = 0; index < maxLength; index += 1) {
+      clasesVisibles[index] = resolveClaseVisible(index);
 
-      baseClaseCell.rowSpan = span;
-      baseAulaCell.rowSpan = span;
-
-      for (let offset = 1; offset < span; offset += 1) {
-        const hideIndex = ((bloqueIndex + offset) * diasCount) + diaIndex;
-        if (claseCells[hideIndex]) claseCells[hideIndex].style.display = 'none';
-        if (aulaCells[hideIndex]) aulaCells[hideIndex].style.display = 'none';
+      if (claseCells[index]) {
+        claseCells[index].textContent = clasesVisibles[index];
+        claseCells[index].style.display = '';
+        claseCells[index].classList.remove('is-continuacion');
+        claseCells[index].removeAttribute('rowspan');
+      }
+      if (aulaCells[index]) {
+        aulaCells[index].textContent = slots[index]?.aula || '-';
+        aulaCells[index].style.display = '';
+        aulaCells[index].classList.remove('is-continuacion');
+        aulaCells[index].removeAttribute('rowspan');
       }
     }
-  }
+
+    const isClaseVacia = (value) => {
+      const normalized = normalizeText(value);
+      return !normalized || normalized === '-';
+    };
+
+    const shouldMergeWithNext = (baseIndex, nextIndex) => {
+      const baseClase = clasesVisibles[baseIndex];
+      const nextClase = clasesVisibles[nextIndex];
+      const baseAula = safeString(slots[baseIndex]?.aula).trim();
+      const nextAula = safeString(slots[nextIndex]?.aula).trim();
+      const nextSlot = slots[nextIndex];
+      const nextEsContinuacion = Boolean(nextSlot?.esContinuacion)
+        || normalizeText(nextSlot?.clase).includes('continuacion');
+
+      if (isClaseVacia(baseClase) || isClaseVacia(nextClase)) return false;
+      if (normalizeText(baseClase) !== normalizeText(nextClase)) return false;
+      if (baseAula && nextAula && normalizeText(baseAula) !== normalizeText(nextAula)) return false;
+
+      return nextEsContinuacion || normalizeText(baseClase) === normalizeText(nextClase);
+    };
+
+    for (let diaIndex = 0; diaIndex < diasCount; diaIndex += 1) {
+      for (let bloqueIndex = 0; bloqueIndex < bloquesCount; bloqueIndex += 1) {
+        const baseIndex = (bloqueIndex * diasCount) + diaIndex;
+        const baseClaseCell = claseCells[baseIndex];
+        const baseAulaCell = aulaCells[baseIndex];
+        if (!baseClaseCell || !baseAulaCell || baseClaseCell.style.display === 'none') continue;
+        if (isClaseVacia(clasesVisibles[baseIndex])) continue;
+
+        let span = 1;
+        while ((bloqueIndex + span) < bloquesCount) {
+          const nextIndex = ((bloqueIndex + span) * diasCount) + diaIndex;
+          if (!shouldMergeWithNext(baseIndex, nextIndex)) break;
+          span += 1;
+        }
+
+        if (span <= 1) continue;
+
+        baseClaseCell.rowSpan = span;
+        baseAulaCell.rowSpan = span;
+
+        for (let offset = 1; offset < span; offset += 1) {
+          const hideIndex = ((bloqueIndex + offset) * diasCount) + diaIndex;
+          if (claseCells[hideIndex]) claseCells[hideIndex].style.display = 'none';
+          if (aulaCells[hideIndex]) aulaCells[hideIndex].style.display = 'none';
+        }
+      }
+    }
+  });
 };
 
 const renderCurrentSelectionSchedule = () => {
@@ -676,7 +680,8 @@ const filtrarClasesPorSeleccion = ({ coordinacion, carrera, turno, anio }) => sa
   const matchCoord = normalizeText(item.coordinacion) === normalizeText(coordinacion);
   const matchCarrera = normalizeText(item.carrera) === normalizeText(carrera);
   const matchTurno = resolveTurnoName(item.turno || 'Diurno') === resolveTurnoName(turno);
-  const matchAnio = Number(item.anio || 1) === Number(anio || 1);
+  const hasAnioFilter = Number.isFinite(Number(anio));
+  const matchAnio = !hasAnioFilter || Number(item.anio || 1) === Number(anio);
   return matchCoord && matchCarrera && matchTurno && matchAnio;
 });
 
@@ -827,12 +832,12 @@ const processCsvImport = (file, context) => {
   reader.readAsText(file);
 };
 
-const generarPlanHorario = ({ turno, clases = [] }) => {
+const generarPlanHorario = ({ turno, clases = [], anio }) => {
   const selection = {
     coordinacion: state.seleccionActual.coordinacion,
     carrera: state.seleccionActual.carrera,
     turno,
-    anio: Number(state.anioTrabajo || 1),
+    anio: Number(anio || state.anioTrabajo || 1),
   };
   const slots = createSlotsForTurno(selection);
   const dias = getDiasArray(turno);
@@ -976,16 +981,36 @@ const getGenerationSelection = () => ({
 const generarHorarioAutomatico = () => {
   const consola = $id('generacion-console');
   const seleccion = getGenerationSelection();
-  const anio = Number(state.anioTrabajo || 1);
-  const clasesSeleccion = filtrarClasesPorSeleccion({ ...seleccion, anio });
-  const plan = generarPlanHorario({ turno: seleccion.turno, clases: clasesSeleccion });
-  renderPlanGenerado(plan, { ...seleccion, anio });
-  const totalClasesAsignadas = plan.clasesAsignadas;
-  const totalBloquesAsignados = plan.bloquesAsignados || 0;
+  const clasesSeleccion = filtrarClasesPorSeleccion(seleccion);
+  const clasesPorAnio = safeArray(clasesSeleccion)
+    .reduce((acc, clase) => {
+      const anioClase = Number(clase?.anio || 1);
+      if (!Number.isFinite(anioClase)) return acc;
+      if (!acc[anioClase]) acc[anioClase] = [];
+      acc[anioClase].push(clase);
+      return acc;
+    }, {});
+
+  const aniosDetectados = Object.keys(clasesPorAnio)
+    .map((anio) => Number(anio))
+    .filter((anio) => Number.isFinite(anio))
+    .sort((a, b) => a - b);
+
+  let totalClasesAsignadas = 0;
+  let totalBloquesAsignados = 0;
+
+  aniosDetectados.forEach((anio) => {
+    const plan = generarPlanHorario({ turno: seleccion.turno, clases: clasesPorAnio[anio], anio });
+    renderPlanGenerado(plan, { ...seleccion, anio });
+    totalClasesAsignadas += plan.clasesAsignadas;
+    totalBloquesAsignados += (plan.bloquesAsignados || 0);
+  });
 
   renderCurrentSelectionSchedule();
   if (consola) {
+    const resumenAnios = aniosDetectados.length ? aniosDetectados.join(', ') : 'ninguno';
     consola.textContent = `Horario generado para ${seleccion.coordinacion} / ${seleccion.carrera} / ${seleccion.turno} (${seleccion.periodo || 'sin periodo'}).
+Años procesados: ${resumenAnios}.
 Clases asignadas: ${totalClasesAsignadas}.
 Bloques ocupados (45 min c/u): ${totalBloquesAsignados}.`;
   }
