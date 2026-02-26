@@ -10,9 +10,6 @@ const toPositiveNumber = (value, fallback) => {
 
 const DEFAULT_MAX_ESTUDIANTES_POR_GRUPO = 35;
 const TURNO_CONFIG_STORAGE_KEY = 'schedule.turnoConfig.v1';
-const VISTA_HORA_INICIO_MIN = 7 * 60;
-const VISTA_HORA_FIN_MIN = 16 * 60;
-const VISTA_DURACION_BLOQUE_MIN = 60;
 
 const tabs = document.querySelectorAll('.tab');
 const principalView = $id('principal-view');
@@ -33,10 +30,10 @@ const diasPorTurno = {
 };
 
 const getDefaultTurnoConfig = (turno) => ({
-  horaInicio: turno === 'Nocturno' ? '18:00' : '08:00',
-  duracion: 45,
+  horaInicio: turno === 'Nocturno' ? '18:00' : turno === 'Diurno' ? '07:00' : '08:00',
+  duracion: turno === 'Diurno' ? 60 : 45,
   creditos: 1,
-  maxTurnos: 4,
+  maxTurnos: turno === 'Diurno' ? 9 : 4,
   dias: diasPorTurno[turno] || diasPorTurno.Diurno,
   prioridadDias: safeString(diasPorTurno[turno] || diasPorTurno.Diurno).split(',').map((dia) => dia.trim()).filter(Boolean),
   aula: '',
@@ -276,10 +273,9 @@ const getBloqueRestriction = (start, end, cfg) => {
 
 const getBloquesVista = (turno) => {
   const cfg = getTurnoConfig(turno);
-  const inicio = VISTA_HORA_INICIO_MIN;
-  const fin = VISTA_HORA_FIN_MIN;
-  const duracion = VISTA_DURACION_BLOQUE_MIN;
-  const totalBloques = Math.max(Math.floor((fin - inicio) / duracion), 1);
+  const inicio = parseTimeToMinutes(cfg.horaInicio || getDefaultTurnoConfig(turno).horaInicio);
+  const duracion = Math.max(toPositiveNumber(cfg.duracion, getDefaultTurnoConfig(turno).duracion), 1);
+  const totalBloques = Math.max(Math.floor(toPositiveNumber(cfg.maxTurnos, getDefaultTurnoConfig(turno).maxTurnos)), 1);
 
   return Array.from({ length: totalBloques }, (_, index) => {
     const start = inicio + (index * duracion);
