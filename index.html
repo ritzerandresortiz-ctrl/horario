@@ -65,8 +65,8 @@
       <section class="panel" id="asignacion">
         <h3>2) Asignación y cambios manuales</h3>
         <div class="row-2">
-          <div><label>Coordinación</label><select id="asignacion-coordinacion" class="js-coordinacion"><option>Arquitectura</option></select></div>
-          <div><label>Turno</label><select id="asignacion-turno" class="js-turno"><option>Diurno</option></select></div>
+          <div><label>Año</label><select id="asignacion-anio"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div>
+          <div><label>Referencia</label><input type="text" value="Usa coordinación/carrera/turno de arriba" readonly></div>
         </div>
         <div class="btn-row">
           <button id="btn-agregar-manual" class="btn-dark">Agregar clase manualmente</button>
@@ -77,11 +77,9 @@
 
       <section class="panel" id="generacion">
         <h3>3) Generación automática por carrera</h3>
-        <p class="hint">Genera horario únicamente para la coordinación/carrera/turno seleccionadas en la carga CSV.</p>
+        <p class="hint">Se usa la coordinación/carrera/turno seleccionadas arriba. Aquí solo elige el periodo.</p>
         <div class="row-3">
-          <div><label>Coordinación</label><select class="js-coordinacion"><option>Arquitectura</option></select></div>
-          <div><label>Carrera</label><select id="generacion-carrera" class="js-carrera"><option>Arquitectura</option></select></div>
-          <div><label>Turno</label><select id="generacion-turno" class="js-turno"><option>Diurno</option></select></div>
+          <div><label>Periodo</label><select id="generacion-periodo"></select></div>
         </div>
         <div class="row-2">
           <button id="btn-generar-auto" class="btn-dark">Generar automáticamente</button>
@@ -97,10 +95,8 @@
           <div><label>Carrera</label><select class="js-carrera"><option>Arquitectura</option></select></div>
           <div><label>Turno</label><select id="vista-turno" class="js-turno"><option>Dominical</option></select></div>
         </div>
-        <table id="vista-table">
-          <thead id="vista-thead"></thead>
-          <tbody id="vista-tbody"></tbody>
-        </table>
+        <div class="inline-actions"><button id="btn-exportar-excel" class="btn-outline">Exportar año visible a Excel</button></div>
+        <div id="vista-years"></div>
       </section>
     </div>
 
@@ -116,10 +112,15 @@
           <option>Dominical</option>
         </select>
 
+        <label>Año de horario a crear / visualizar</label>
+        <select id="config-anio-trabajo">
+          <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        </select>
+
         <div class="row-3">
           <div>
             <label>Hora de inicio</label>
-            <input id="turno-hora-inicio" type="time" value="07:00">
+            <input id="turno-hora-inicio" type="time" value="08:00">
           </div>
           <div>
             <label>Duración por bloque (min)</label>
@@ -136,7 +137,10 @@
         </div>
 
         <label>Días habilitados (separados por coma)</label>
-        <input id="turno-dias" type="text" value="Lunes,Martes,Miércoles,Jueves,Viernes" readonly>
+        <input id="turno-dias" type="text" value="Lunes,Martes,Miércoles,Jueves,Viernes">
+
+        <label>Prioridad de días (Día:valor separados por coma)</label>
+        <input id="turno-prioridad" type="text" value="Lunes:1,Martes:2,Miércoles:3,Jueves:4,Viernes:5">
 
         <label>Aula para este turno</label>
         <input id="turno-aula" type="text" value="" placeholder="Ej. A-101">
@@ -218,6 +222,18 @@
           <button id="btn-guardar-matricula" class="btn-primary">Guardar matrícula</button>
         </div>
         <p class="hint" id="matricula-hint">Sin cambios.</p>
+      </section>
+
+      <section class="panel">
+        <h3>🗓️ Configuración de periodos por turno</h3>
+        <div class="row-2">
+          <div><label>Turno</label><select id="periodo-turno" class="js-turno"><option>Diurno</option></select></div>
+          <div><label>Nuevo periodo</label><input id="nuevo-periodo" type="text" placeholder="Ej. 2026-I"></div>
+        </div>
+        <div class="inline-actions">
+          <button id="btn-agregar-periodo" class="btn-primary">Agregar periodo</button>
+        </div>
+        <ul id="periodos-lista"></ul>
       </section>
     </div>
   </main>
