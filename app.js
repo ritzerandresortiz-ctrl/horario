@@ -10,6 +10,8 @@ const toPositiveNumber = (value, fallback) => {
 
 const DEFAULT_MAX_ESTUDIANTES_POR_GRUPO = 35;
 const TURNO_CONFIG_STORAGE_KEY = 'schedule.turnoConfig.v1';
+const PERIODOS_STORAGE_KEY = 'schedule.periodos.v1';
+const ANIOS_CARRERA = [1, 2, 3, 4, 5];
 
 const tabs = document.querySelectorAll('.tab');
 const principalView = $id('principal-view');
@@ -30,12 +32,12 @@ const diasPorTurno = {
 };
 
 const getDefaultTurnoConfig = (turno) => ({
-  horaInicio: turno === 'Nocturno' ? '18:00' : turno === 'Diurno' ? '07:00' : '08:00',
+  horaInicio: turno === 'Nocturno' ? '18:00' : '08:00',
   duracion: turno === 'Diurno' ? 60 : 45,
   creditos: 1,
   maxTurnos: turno === 'Diurno' ? 9 : 4,
   dias: diasPorTurno[turno] || diasPorTurno.Diurno,
-  prioridadDias: safeString(diasPorTurno[turno] || diasPorTurno.Diurno).split(',').map((dia) => dia.trim()).filter(Boolean),
+  prioridadDias: safeString(diasPorTurno[turno] || diasPorTurno.Diurno).split(',').map((dia, index) => ({ dia: dia.trim(), prioridad: index + 1 })).filter((item) => item.dia),
   aula: '',
   recesoInicio: '',
   recesoFin: '',
@@ -60,10 +62,17 @@ const state = {
     Dominical: getDefaultTurnoConfig('Dominical'),
   },
   matricula: {},
+  periodosPorTurno: {
+    Diurno: ['2026-I'],
+    Sabatino: ['2026-I'],
+    Nocturno: ['2026-I'],
+    Dominical: ['2026-I'],
+  },
   maxEstudiantesPorGrupo: DEFAULT_MAX_ESTUDIANTES_POR_GRUPO,
   seleccionActual: { coordinacion: 'Arquitectura', carrera: 'Arquitectura', turno: 'Diurno', grupo: 'G1' },
   schedules: {},
   activeSlotSelection: null,
+  anioTrabajo: 1,
 };
 
 const normalizeDiasInput = (diasValue) => safeString(diasValue)
@@ -88,17 +97,31 @@ const sanitizeTurnoConfigForStorage = (turno, rawConfig = {}) => {
     : normalizeDiasInput(rawConfig.prioridadDias);
 
   const prioridadDias = prioridadBase
-    .map((dia) => safeString(dia).trim())
-    .filter((dia, index, arr) => dia && arr.findIndex((item) => normalizeText(item) === normalizeText(dia)) === index);
+    .map((entry, index) => {
+      if (entry && typeof entry === 'object') {
+        return { dia: safeString(entry.dia).trim(), prioridad: toPositiveNumber(entry.prioridad, index + 1) };
+      }
+      return { dia: safeString(entry).trim(), prioridad: index + 1 };
+    })
+    .filter((item, index, arr) => item.dia && arr.findIndex((v) => normalizeText(v.dia) === normalizeText(item.dia)) === index);
 
-  const prioridadFinal = prioridadDias.length ? prioridadDias : normalizeDiasInput(diasString);
+  const prioridadFinal = prioridadDias.length
+    ? prioridadDias
+    : normalizeDiasInput(diasString).map((dia, index) => ({ dia, prioridad: index + 1 }));
 
   return {
     turno: turnoName,
+    horaInicio: safeString(rawConfig.horaInicio || defaults.horaInicio),
     dias: diasString,
     duracion: toPositiveNumber(rawConfig.duracion, defaults.duracion),
+    creditos: toPositiveNumber(rawConfig.creditos, defaults.creditos),
     maxTurnos: toPositiveNumber(rawConfig.maxTurnos, defaults.maxTurnos),
     prioridadDias: prioridadFinal,
+    aula: safeString(rawConfig.aula || ''),
+    recesoInicio: safeString(rawConfig.recesoInicio || ''),
+    recesoFin: safeString(rawConfig.recesoFin || ''),
+    almuerzoInicio: safeString(rawConfig.almuerzoInicio || ''),
+    almuerzoFin: safeString(rawConfig.almuerzoFin || ''),
   };
 };
 
@@ -129,14 +152,44 @@ const loadTurnoConfigFromLocalStorage = () => {
       state.turnoConfig[turno] = {
         ...getDefaultTurnoConfig(turno),
         ...(state.turnoConfig[turno] || {}),
+        horaInicio: saved.horaInicio,
         dias: saved.dias,
         duracion: saved.duracion,
+        creditos: saved.creditos,
         maxTurnos: saved.maxTurnos,
         prioridadDias: saved.prioridadDias,
+        aula: saved.aula,
+        recesoInicio: saved.recesoInicio,
+        recesoFin: saved.recesoFin,
+        almuerzoInicio: saved.almuerzoInicio,
+        almuerzoFin: saved.almuerzoFin,
       };
     });
   } catch (error) {
     console.warn('No se pudo cargar la configuración de turno desde localStorage.', error);
+  }
+};
+
+const savePeriodosToLocalStorage = () => {
+  try {
+    window.localStorage.setItem(PERIODOS_STORAGE_KEY, JSON.stringify(state.periodosPorTurno));
+  } catch (error) {
+    console.warn('No se pudieron guardar los periodos.', error);
+  }
+};
+
+const loadPeriodosFromLocalStorage = () => {
+  try {
+    const raw = window.localStorage.getItem(PERIODOS_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    turnosDisponibles.forEach((turno) => {
+      const values = safeArray(parsed[turno]).map((item) => safeString(item).trim()).filter(Boolean);
+      if (values.length) state.periodosPorTurno[turno] = [...new Set(values)];
+    });
+  } catch (error) {
+    console.warn('No se pudieron cargar los periodos.', error);
   }
 };
 
@@ -236,7 +289,7 @@ const updateSeleccionActual = () => {
 
 const getDiasPorTurno = (turno) => getTurnoConfig(turno).dias || diasPorTurno[resolveTurnoName(turno)] || diasPorTurno.Diurno;
 
-const getSelectionKey = ({ coordinacion, carrera, turno, grupo }) => `${safeString(coordinacion)}::${safeString(carrera)}::${resolveTurnoName(turno)}::${safeString(grupo || 'G1')}`;
+const getSelectionKey = ({ coordinacion, carrera, turno, anio, grupo }) => `${safeString(coordinacion)}::${safeString(carrera)}::${resolveTurnoName(turno)}::A${safeString(anio || 1)}::${safeString(grupo || 'G1')}`;
 
 const parseTimeToMinutes = (time = '08:00') => {
   const match = safeString(time).match(/^(\d{1,2}):(\d{2})$/);
@@ -255,6 +308,27 @@ const formatTimeFromMinutes = (minutes) => {
 };
 
 const rangesOverlap = (startA, endA, startB, endB) => startA < endB && startB < endA;
+
+const parsePrioridadDias = (value, diasFallback) => {
+  const base = safeString(value).trim();
+  if (!base) return diasFallback.map((dia, index) => ({ dia, prioridad: index + 1 }));
+
+  const parsed = base.split(',').map((item) => item.trim()).filter(Boolean).map((entry, index) => {
+    const [diaRaw, prioridadRaw] = entry.split(':').map((part) => safeString(part).trim());
+    const prioridad = Number(prioridadRaw);
+    return {
+      dia: diaRaw,
+      prioridad: Number.isFinite(prioridad) && prioridad > 0 ? prioridad : (index + 1),
+    };
+  }).filter((item) => item.dia);
+
+  return parsed.length ? parsed : diasFallback.map((dia, index) => ({ dia, prioridad: index + 1 }));
+};
+
+const formatPrioridadDias = (prioridades = [], diasFallback = []) => {
+  const base = safeArray(prioridades).length ? safeArray(prioridades) : diasFallback.map((dia, index) => ({ dia, prioridad: index + 1 }));
+  return base.map((item) => `${item.dia}:${item.prioridad}`).join(',');
+};
 
 const getBloqueRestriction = (start, end, cfg) => {
   const recesoInicio = parseTimeToMinutes(cfg.recesoInicio || '');
@@ -316,35 +390,47 @@ const getCurrentVistaSelection = () => ({
   carrera: ($id('vista')?.querySelector('.js-carrera')?.value) || state.seleccionActual.carrera,
   turno: resolveTurnoName(getSelectValue('vista-turno', state.seleccionActual.turno)),
   grupo: state.seleccionActual.grupo || 'G1',
+  anio: Number(state.anioTrabajo || 1),
 });
 
-const renderVistaTable = (turno) => {
-  const thead = $id('vista-thead');
-  const tbody = $id('vista-tbody');
-  if (!thead || !tbody) return;
+const getAniosConDatos = ({ coordinacion, carrera, turno }) => {
+  const aniosCsv = safeArray(state.clases)
+    .filter((item) => normalizeText(item.coordinacion) === normalizeText(coordinacion)
+      && normalizeText(item.carrera) === normalizeText(carrera)
+      && resolveTurnoName(item.turno || 'Diurno') === resolveTurnoName(turno))
+    .map((item) => Number(item.anio))
+    .filter((anio) => ANIOS_CARRERA.includes(anio));
 
-  const bloquesVista = getBloquesVista(turno);
-  const dias = getDiasArray(turno);
+  return [...new Set([...ANIOS_CARRERA, ...aniosCsv])].sort((a, b) => a - b);
+};
+
+const renderVistaTablesByYear = (selection) => {
+  const container = $id('vista-years');
+  if (!container) return;
+  const dias = getDiasArray(selection.turno);
   const safeDias = dias.length ? dias : ['Día'];
+  const bloquesVista = getBloquesVista(selection.turno);
+  const anio = Number(selection.anio || state.anioTrabajo || 1);
 
-  let headerHtml = '<tr><th>Bloque</th>';
-  safeDias.forEach((dia) => {
-    headerHtml += `<th class="vista-dia-header">${dia}</th><th class="vista-aula-header">Aula</th>`;
-  });
-  headerHtml += '</tr>';
-  thead.innerHTML = headerHtml;
+  container.innerHTML = [anio].map((anio) => {
+    const header = safeDias.map((dia) => `<th class="vista-dia-header">${dia}</th><th class="vista-aula-header">Aula</th>`).join('');
+    const rows = bloquesVista.map((bloque, bloqueIndex) => {
+      let cells = `<td>${bloque.codigo}<br><small>${bloque.hora}</small></td>`;
+      safeDias.forEach((_, diaIndex) => {
+        const slot = (bloqueIndex * safeDias.length) + diaIndex;
+        cells += `<td class="vista-clase" data-anio="${anio}" data-slot="${slot}" data-restriccion="${bloque.restriccion}">-</td><td class="vista-aula" data-anio="${anio}" data-slot="${slot}" data-restriccion="${bloque.restriccion}">-</td>`;
+      });
+      return `<tr>${cells}</tr>`;
+    }).join('');
 
-  tbody.innerHTML = bloquesVista.map((bloque, bloqueIndex) => {
-    let cells = `<td>${bloque.codigo}<br><small>${bloque.hora}</small></td>`;
-    safeDias.forEach((_, diaIndex) => {
-      const slot = (bloqueIndex * safeDias.length) + diaIndex;
-      cells += `<td class="vista-clase" data-slot="${slot}" data-restriccion="${bloque.restriccion}">-</td><td class="vista-aula" data-slot="${slot}" data-restriccion="${bloque.restriccion}">-</td>`;
-    });
-    return `<tr>${cells}</tr>`;
+    return `<h4>Año ${anio}</h4><table class="vista-table-year"><thead><tr><th>Bloque</th>${header}</tr></thead><tbody>${rows}</tbody></table>`;
   }).join('');
 };
 
-const applyDiasByTurnoToView = (turno) => renderVistaTable(turno);
+const applyDiasByTurnoToView = (turno) => {
+  const selection = getCurrentVistaSelection();
+  renderVistaTablesByYear({ ...selection, turno });
+};
 
 const renderCatalogoTabla = () => {
   const tbody = $id('clases-tbody');
@@ -371,44 +457,32 @@ const renderDocentes = () => {
   });
 };
 
-const getVistaCells = () => {
-  const claseCells = [...document.querySelectorAll('#vista-tbody .vista-clase')];
-  const aulaCells = [...document.querySelectorAll('#vista-tbody .vista-aula')];
-  return { claseCells, aulaCells };
-};
-
-const paintClaseCell = (cell, value) => {
-  if (cell) cell.textContent = value || '-';
-};
-
-const paintAulaCell = (cell, value) => {
-  if (cell) cell.textContent = value || '-';
-};
-
-const pintarClasesEnVista = (slots = []) => {
-  const { claseCells, aulaCells } = getVistaCells();
+const paintSchedulesForAllYears = (selection) => {
+  const anio = Number(selection.anio || state.anioTrabajo || 1);
+  const yearSelection = { ...selection, anio };
+  const slots = getOrCreateSchedule(yearSelection);
+  const claseCells = [...document.querySelectorAll(`#vista-years .vista-clase[data-anio="${anio}"]`)];
+  const aulaCells = [...document.querySelectorAll(`#vista-years .vista-aula[data-anio="${anio}"]`)];
   const maxLength = Math.max(claseCells.length, aulaCells.length);
 
   for (let index = 0; index < maxLength; index += 1) {
-    const claseCell = claseCells[index];
-    const aulaCell = aulaCells[index];
-    const slot = slots[index] || { clase: '-', aula: '-' };
-    paintClaseCell(claseCell, slot.clase);
-    paintAulaCell(aulaCell, slot.aula);
+    if (claseCells[index]) claseCells[index].textContent = slots[index]?.clase || '-';
+    if (aulaCells[index]) aulaCells[index].textContent = slots[index]?.aula || '-';
   }
 };
 
 const renderCurrentSelectionSchedule = () => {
   const selection = getCurrentVistaSelection();
-  const slots = getOrCreateSchedule(selection);
-  pintarClasesEnVista(slots);
+  renderVistaTablesByYear(selection);
+  paintSchedulesForAllYears(selection);
 };
 
-const filtrarClasesPorSeleccion = ({ coordinacion, carrera, turno }) => safeArray(state.clases).filter((item) => {
+const filtrarClasesPorSeleccion = ({ coordinacion, carrera, turno, anio }) => safeArray(state.clases).filter((item) => {
   const matchCoord = normalizeText(item.coordinacion) === normalizeText(coordinacion);
   const matchCarrera = normalizeText(item.carrera) === normalizeText(carrera);
   const matchTurno = resolveTurnoName(item.turno || 'Diurno') === resolveTurnoName(turno);
-  return matchCoord && matchCarrera && matchTurno;
+  const matchAnio = Number(item.anio || 1) === Number(anio || 1);
+  return matchCoord && matchCarrera && matchTurno && matchAnio;
 });
 
 const parseCsvRows = (text) => {
@@ -457,6 +531,7 @@ const createClassFromCsvRow = (row, headers, context) => {
       caracteristicas: ['csv', tipoClase],
       docente,
       area: 'Por asignar',
+      anio: Math.min(Math.max(Number(cols[headers.indexOf('anio')] || 1) || 1, 1), 5),
       aula,
     },
   };
@@ -495,20 +570,22 @@ const generarPlanHorario = ({ turno, clases = [] }) => {
   const diasCount = Math.max(dias.length, 1);
 
   safeArray(clases).forEach((clase, index) => {
-    const slotIndex = slots.findIndex((slot) => !slot.restriccion && slot.clase === '-');
+    const claseNombre = safeString(clase.clase).trim() || `Clase ${index + 1}`;
+    const slotIndex = slots.findIndex((slot, idx) => {
+      if (slot.restriccion || slot.clase !== '-') return false;
+      const diaIndex = idx % diasCount;
+      const claseRepetidaEnDia = slots.some((item, pos) => (pos % diasCount) === diaIndex && normalizeText(item.clase) === normalizeText(claseNombre));
+      return !claseRepetidaEnDia;
+    });
     if (slotIndex === -1) return;
 
     slots[slotIndex] = {
-      clase: safeString(clase.clase).trim() || `Clase ${index + 1}`,
+      clase: claseNombre,
       aula: safeString(clase.aula).trim() || '-',
       docente: safeString(clase.docente).trim(),
       restriccion: '',
     };
 
-    const mirrorIndex = slotIndex + diasCount;
-    if (mirrorIndex < slots.length && slots[mirrorIndex].clase === '-' && !slots[mirrorIndex].restriccion) {
-      slots[mirrorIndex] = { ...slots[slotIndex] };
-    }
   });
 
   return {
@@ -526,7 +603,7 @@ const renderPlanGenerado = (plan, selection) => {
     const key = getSelectionKey(selection);
     state.schedules[key] = slots.map((slot) => ({ ...slot, docente: slot.docente || '' }));
   }
-  pintarClasesEnVista(slots);
+  renderCurrentSelectionSchedule();
 };
 
 const syncAppFromSeleccionActual = () => {
@@ -537,34 +614,53 @@ const syncAppFromSeleccionActual = () => {
   syncSelectValue('.js-turno', state.seleccionActual.turno);
   syncSelectValue('.js-carrera', state.seleccionActual.carrera);
   applyDiasByTurnoToView(state.seleccionActual.turno);
+  if ($id('config-anio-trabajo')) $id('config-anio-trabajo').value = String(state.anioTrabajo || 1);
+  renderPeriodosUI();
   renderCurrentSelectionSchedule();
 };
 
-const getGenerationSelection = () => {
-  const generacionPanel = $id('generacion');
-  const coordinacion = generacionPanel?.querySelector('.js-coordinacion')?.value
-    || getSelectValue('carga-coordinacion', state.seleccionActual.coordinacion);
-  const carrera = getSelectValue('generacion-carrera', state.seleccionActual.carrera);
-  const turno = resolveTurnoName(getSelectValue('generacion-turno', state.seleccionActual.turno || 'Diurno'));
-  return { coordinacion, carrera, turno, grupo: state.seleccionActual.grupo || 'G1' };
+const getPeriodosByTurno = (turno) => {
+  const turnoName = resolveTurnoName(turno);
+  const current = safeArray(state.periodosPorTurno[turnoName]).map((item) => safeString(item).trim()).filter(Boolean);
+  return current.length ? current : ['2026-I'];
 };
+
+const renderPeriodosUI = () => {
+  const turno = resolveTurnoName(getSelectValue('periodo-turno', state.seleccionActual.turno || 'Diurno'));
+  const periodos = getPeriodosByTurno(turno);
+  state.periodosPorTurno[turno] = periodos;
+
+  const periodoSelect = $id('generacion-periodo');
+  if (periodoSelect) fillSelect(periodoSelect, periodos, periodos[0]);
+
+  const list = $id('periodos-lista');
+  if (list) {
+    list.innerHTML = periodos.map((periodo) => `<li>${periodo} <button type="button" data-periodo="${periodo}" class="btn-outline btn-eliminar-periodo">Eliminar</button></li>`).join('');
+  }
+};
+
+const getGenerationSelection = () => ({
+  coordinacion: state.seleccionActual.coordinacion,
+  carrera: state.seleccionActual.carrera,
+  turno: resolveTurnoName(state.seleccionActual.turno || 'Diurno'),
+  periodo: getSelectValue('generacion-periodo', ''),
+  grupo: state.seleccionActual.grupo || 'G1',
+  anio: Number(state.anioTrabajo || 1),
+});
 
 const generarHorarioAutomatico = () => {
   const consola = $id('generacion-console');
   const seleccion = getGenerationSelection();
-  const clasesSeleccion = filtrarClasesPorSeleccion(seleccion);
-
-  if (!clasesSeleccion.length) {
-    if (consola) consola.textContent = 'No hay clases para la configuración seleccionada. Carga CSV o agrega clases manualmente.';
-    return;
-  }
-
-  applyDiasByTurnoToView(seleccion.turno);
+  const anio = Number(state.anioTrabajo || 1);
+  const clasesSeleccion = filtrarClasesPorSeleccion({ ...seleccion, anio });
   const plan = generarPlanHorario({ turno: seleccion.turno, clases: clasesSeleccion });
-  renderPlanGenerado(plan, seleccion);
+  renderPlanGenerado(plan, { ...seleccion, anio });
+  const totalAsignadas = plan.clasesAsignadas;
 
+  renderCurrentSelectionSchedule();
   if (consola) {
-    consola.textContent = `Horario generado para ${seleccion.coordinacion} / ${seleccion.carrera} / ${seleccion.turno}.\nBloques asignados: ${plan.clasesAsignadas}.\nBloques restringidos: ${plan.bloquesRestringidos}.`;
+    consola.textContent = `Horario generado para ${seleccion.coordinacion} / ${seleccion.carrera} / ${seleccion.turno} (${seleccion.periodo || 'sin periodo'}).
+Bloques asignados: ${totalAsignadas}.`;
   }
 };
 
@@ -577,6 +673,7 @@ const loadTurno = () => {
   const creditosInput = $id('turno-creditos');
   const maxTurnosInput = $id('turno-max-turnos');
   const diasInput = $id('turno-dias');
+  const prioridadInput = $id('turno-prioridad');
   const aulaInput = $id('turno-aula');
   const recesoInicioInput = $id('turno-receso-inicio');
   const recesoFinInput = $id('turno-receso-fin');
@@ -588,6 +685,7 @@ const loadTurno = () => {
   if (creditosInput) creditosInput.value = cfg.creditos;
   if (maxTurnosInput) maxTurnosInput.value = cfg.maxTurnos;
   if (diasInput) diasInput.value = cfg.dias;
+  if (prioridadInput) prioridadInput.value = formatPrioridadDias(cfg.prioridadDias, normalizeDiasInput(cfg.dias));
   if (aulaInput) aulaInput.value = cfg.aula;
   if (recesoInicioInput) recesoInicioInput.value = cfg.recesoInicio;
   if (recesoFinInput) recesoFinInput.value = cfg.recesoFin;
@@ -609,13 +707,11 @@ const saveTurnoConfig = () => {
   const almuerzoInicioInput = $id('turno-almuerzo-inicio');
   const almuerzoFinInput = $id('turno-almuerzo-fin');
 
+  const diasInput = $id('turno-dias');
+  const prioridadInput = $id('turno-prioridad');
   const aula = safeString(aulaInput?.value).trim();
-  if (!aula) {
-    setHint('turno-hint', 'Debes escribir el aula antes de guardar.', false);
-    return;
-  }
-
-  const diasCalculados = getDiasPorTurno(turno);
+  const diasCalculados = normalizeDiasInput(diasInput?.value || '').join(',') || getDefaultTurnoConfig(turno).dias;
+  const prioridadDias = parsePrioridadDias(prioridadInput?.value || '', normalizeDiasInput(diasCalculados));
 
   state.turnoConfig[turno] = {
     ...getDefaultTurnoConfig(turno),
@@ -624,7 +720,7 @@ const saveTurnoConfig = () => {
     creditos: toPositiveNumber(creditosInput?.value, 1),
     maxTurnos: toPositiveNumber(maxTurnosInput?.value, 4),
     dias: diasCalculados,
-    prioridadDias: normalizeDiasInput(diasCalculados),
+    prioridadDias,
     aula,
     recesoInicio: recesoInicioInput?.value || '',
     recesoFin: recesoFinInput?.value || '',
@@ -649,6 +745,24 @@ const resetTurnoConfig = () => {
   setHint('turno-hint', 'Valores restablecidos por defecto.');
 };
 
+
+const exportVisibleYearToExcel = () => {
+  const table = document.querySelector('#vista-years table');
+  if (!table) return;
+  const rows = [...table.querySelectorAll('tr')].map((tr) => [...tr.querySelectorAll('th,td')].map((c) => safeString(c.textContent).replace(/\n+/g, ' ').trim()));
+  const tsv = rows.map((r) => r.join('\t')).join('\n');
+  const blob = new Blob([tsv], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const anio = Number(state.anioTrabajo || 1);
+  const nombre = `horario_${safeString(state.seleccionActual.carrera || 'carrera').replace(/\s+/g, '_')}_anio_${anio}.xls`;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = nombre;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+};
+
 const bindEvents = () => {
   $id('btn-menu')?.addEventListener('click', () => body.classList.toggle('sidebar-hidden'));
 
@@ -669,6 +783,11 @@ const bindEvents = () => {
   });
 
   $id('btn-agregar-manual')?.addEventListener('click', () => {
+    if (!safeString(state.seleccionActual.carrera).trim()) {
+      setHint('asignacion-hint', 'Selecciona la carrera en la parte superior antes de agregar clase manual.', false);
+      return;
+    }
+
     const clase = window.prompt('Nombre de la clase a agregar:');
     if (!clase) return;
 
@@ -677,10 +796,12 @@ const bindEvents = () => {
     const creditosInput = window.prompt('Créditos de la clase:', '1');
     const tipoClase = safeString(window.prompt('Tipo de clase (ejemplo: aula, laboratorio, taller):', 'aula')).trim() || 'aula';
 
+    const anio = Number(getSelectValue('asignacion-anio', '1')) || 1;
     state.clases.push({
-      coordinacion: getSelectValue('asignacion-coordinacion', 'Arquitectura'),
-      carrera: getSelectValue('carga-carrera', getAllCarreras()[0] || 'Arquitectura'),
-      turno: resolveTurnoName(getSelectValue('asignacion-turno', 'Diurno')),
+      coordinacion: state.seleccionActual.coordinacion,
+      carrera: state.seleccionActual.carrera,
+      turno: resolveTurnoName(state.seleccionActual.turno || 'Diurno'),
+      anio,
       clase: clase.trim(),
       creditos: toPositiveNumber(creditosInput, 1),
       tipoClase,
@@ -690,8 +811,33 @@ const bindEvents = () => {
       aula: safeString(aula).trim(),
     });
 
+    const slotPrompt = safeString(window.prompt('Slot a ocupar (formato día,bloque. Ej: 1,2). Opcional:')).trim();
+    if (slotPrompt) {
+      const [diaRaw, bloqueRaw] = slotPrompt.split(',').map((v) => Number(v.trim()));
+      const diasCount = Math.max(getDiasArray(state.seleccionActual.turno).length, 1);
+      const slotIndex = ((bloqueRaw - 1) * diasCount) + (diaRaw - 1);
+      if (slotIndex >= 0) {
+        const sel = { ...state.seleccionActual, anio };
+        const schedule = getOrCreateSchedule(sel);
+        if (schedule[slotIndex] && !schedule[slotIndex].restriccion && schedule[slotIndex].clase !== '-') {
+          const ok = window.confirm(`Se perderá la clase actual en esa hora para ${anio}° año de ${state.seleccionActual.carrera}. ¿Deseas continuar?`);
+          if (!ok) {
+            updateSeleccionActual();
+            renderCatalogoTabla();
+            setHint('asignacion-hint', 'Clase agregada al catálogo, sin sobrescribir slot.');
+            return;
+          }
+        }
+
+        if (schedule[slotIndex] && !schedule[slotIndex].restriccion) {
+          schedule[slotIndex] = { clase: clase.trim(), aula: safeString(aula).trim() || '-', docente: safeString(docente).trim(), restriccion: '' };
+        }
+      }
+    }
+
     updateSeleccionActual();
     renderCatalogoTabla();
+    renderCurrentSelectionSchedule();
     setHint('asignacion-hint', `Clase "${clase}" agregada correctamente.`);
   });
 
@@ -723,7 +869,13 @@ const bindEvents = () => {
   });
 
   $id('turno-config-select')?.addEventListener('change', loadTurno);
+  $id('periodo-turno')?.addEventListener('change', renderPeriodosUI);
   $id('btn-guardar-turno')?.addEventListener('click', saveTurnoConfig);
+  $id('config-anio-trabajo')?.addEventListener('change', (event) => {
+    state.anioTrabajo = Number(event.target.value) || 1;
+    renderCurrentSelectionSchedule();
+  });
+  $id('btn-exportar-excel')?.addEventListener('click', exportVisibleYearToExcel);
   $id('btn-restablecer-turno')?.addEventListener('click', resetTurnoConfig);
 
   $id('btn-nueva-area')?.addEventListener('click', () => {
@@ -841,6 +993,28 @@ const bindEvents = () => {
     setHint('matricula-hint', `Matrícula guardada: ${carrera} (${estudiantes} estudiantes).`);
   });
 
+  $id('btn-agregar-periodo')?.addEventListener('click', () => {
+    const turno = resolveTurnoName(getSelectValue('periodo-turno', state.seleccionActual.turno || 'Diurno'));
+    const periodo = safeString($id('nuevo-periodo')?.value).trim();
+    if (!periodo) return;
+    const current = getPeriodosByTurno(turno);
+    if (!current.some((item) => normalizeText(item) === normalizeText(periodo))) current.push(periodo);
+    state.periodosPorTurno[turno] = current;
+    if ($id('nuevo-periodo')) $id('nuevo-periodo').value = '';
+    savePeriodosToLocalStorage();
+    renderPeriodosUI();
+  });
+
+  $id('periodos-lista')?.addEventListener('click', (event) => {
+    const button = event.target.closest('.btn-eliminar-periodo');
+    if (!button) return;
+    const periodo = button.dataset?.periodo;
+    const turno = resolveTurnoName(getSelectValue('periodo-turno', state.seleccionActual.turno || 'Diurno'));
+    state.periodosPorTurno[turno] = getPeriodosByTurno(turno).filter((item) => item !== periodo);
+    savePeriodosToLocalStorage();
+    renderPeriodosUI();
+  });
+
   const connectSelect = (id, key) => {
     $id(id)?.addEventListener('change', (event) => {
       state.seleccionActual[key] = key === 'turno' ? resolveTurnoName(event.target.value) : event.target.value;
@@ -852,10 +1026,13 @@ const bindEvents = () => {
   connectSelect('carga-carrera', 'carrera');
   connectSelect('carga-turno', 'turno');
   connectSelect('vista-turno', 'turno');
+  $id('vista')?.querySelector('.js-coordinacion')?.addEventListener('change', renderCurrentSelectionSchedule);
+  $id('vista')?.querySelector('.js-carrera')?.addEventListener('change', renderCurrentSelectionSchedule);
 };
 
 const init = () => {
   loadTurnoConfigFromLocalStorage();
+  loadPeriodosFromLocalStorage();
   syncCoordinacionSelects();
   syncCarreraSelects();
   syncTurnoSelects();
