@@ -33,7 +33,7 @@ const diasPorTurno = {
 };
 
 const getDefaultTurnoConfig = (turno) => ({
-  horaInicio: turno === 'Nocturno' ? '18:00' : '08:00',
+  horaInicio: turno === 'Nocturno' ? '18:00' : '07:00',
   duracion: turno === 'Diurno' ? 60 : 45,
   creditos: 1,
   maxTurnos: turno === 'Diurno' ? 9 : 4,
@@ -447,13 +447,11 @@ const getDiasArray = (turno) => safeString(getDiasPorTurno(turno), 'Día')
   .filter(Boolean);
 
 const getBloquesRequeridosPorSeleccion = (selection) => {
-  const clasesSeleccion = filtrarClasesPorSeleccion(selection);
-  const bloquesNecesarios = getBloquesNecesariosParaClases(selection.turno, clasesSeleccion);
   const maxTurnosConfigurados = Math.max(
     toPositiveNumber(getTurnoConfig(selection.turno).maxTurnos, getDefaultTurnoConfig(selection.turno).maxTurnos),
     1,
   );
-  return Math.max(maxTurnosConfigurados, bloquesNecesarios);
+  return maxTurnosConfigurados;
 };
 
 const createSlotsForTurno = (selection) => {
@@ -578,9 +576,6 @@ const paintSchedulesForAllYears = (selection) => {
   const anio = Number(selection.anio || state.anioTrabajo || 1);
   const yearSelection = { ...selection, anio };
   const slots = getOrCreateSchedule(yearSelection);
-  const dias = getDiasArray(selection.turno);
-  const diasCount = Math.max(dias.length, 1);
-  const bloquesCount = getBloquesVista(selection.turno, getBloquesRequeridosPorSeleccion(selection)).length;
   const claseCells = [...document.querySelectorAll(`#vista-years .vista-clase[data-anio="${anio}"]`)];
   const aulaCells = [...document.querySelectorAll(`#vista-years .vista-aula[data-anio="${anio}"]`)];
   const maxLength = Math.max(claseCells.length, aulaCells.length);
@@ -589,44 +584,12 @@ const paintSchedulesForAllYears = (selection) => {
     if (claseCells[index]) {
       claseCells[index].textContent = slots[index]?.clase || '-';
       claseCells[index].style.display = '';
-      claseCells[index].rowSpan = 1;
+      claseCells[index].classList.toggle('is-continuacion', Boolean(slots[index]?.esContinuacion));
     }
     if (aulaCells[index]) {
       aulaCells[index].textContent = slots[index]?.aula || '-';
       aulaCells[index].style.display = '';
-      aulaCells[index].rowSpan = 1;
-    }
-  }
-
-  const isContinuationSlot = (slot = {}) => {
-    if (!slot || slot.restriccion) return false;
-    if (slot.esContinuacion) return true;
-    return normalizeText(slot.clase).includes('continuación');
-  };
-
-  for (let diaIndex = 0; diaIndex < diasCount; diaIndex += 1) {
-    for (let bloqueIndex = 0; bloqueIndex < bloquesCount; bloqueIndex += 1) {
-      const slotIndex = (bloqueIndex * diasCount) + diaIndex;
-      const slot = slots[slotIndex];
-      if (!slot || slot.restriccion || slot.clase === '-' || isContinuationSlot(slot)) continue;
-
-      let span = 1;
-      for (let nextBloque = bloqueIndex + 1; nextBloque < bloquesCount; nextBloque += 1) {
-        const nextIndex = (nextBloque * diasCount) + diaIndex;
-        const nextSlot = slots[nextIndex];
-        if (!isContinuationSlot(nextSlot)) break;
-        span += 1;
-      }
-
-      if (span <= 1) continue;
-      if (claseCells[slotIndex]) claseCells[slotIndex].rowSpan = span;
-      if (aulaCells[slotIndex]) aulaCells[slotIndex].rowSpan = span;
-
-      for (let offset = 1; offset < span; offset += 1) {
-        const continuationIndex = slotIndex + (offset * diasCount);
-        if (claseCells[continuationIndex]) claseCells[continuationIndex].style.display = 'none';
-        if (aulaCells[continuationIndex]) aulaCells[continuationIndex].style.display = 'none';
-      }
+      aulaCells[index].classList.toggle('is-continuacion', Boolean(slots[index]?.esContinuacion));
     }
   }
 };

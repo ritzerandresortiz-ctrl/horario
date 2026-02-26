@@ -311,6 +311,18 @@ th {
   min-width: 110px;
 }
 
+#vista .vista-clase,
+#vista .vista-aula {
+  vertical-align: middle;
+}
+
+#vista .vista-clase.is-continuacion,
+#vista .vista-aula.is-continuacion {
+  background: #f8fbff;
+  color: #496285;
+  font-style: italic;
+}
+
 .modal {
   position: fixed;
   inset: 0;
