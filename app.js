@@ -11,6 +11,7 @@ const toPositiveNumber = (value, fallback) => {
 const DEFAULT_MAX_ESTUDIANTES_POR_GRUPO = 35;
 const TURNO_CONFIG_STORAGE_KEY = 'schedule.turnoConfig.v1';
 const PERIODOS_STORAGE_KEY = 'schedule.periodos.v1';
+const APP_DATA_STORAGE_KEY = 'schedule.appData.v1';
 const ANIOS_CARRERA = [1, 2, 3, 4, 5];
 
 const tabs = document.querySelectorAll('.tab');
@@ -190,6 +191,73 @@ const loadPeriodosFromLocalStorage = () => {
     });
   } catch (error) {
     console.warn('No se pudieron cargar los periodos.', error);
+  }
+};
+
+const sanitizeCoordinaciones = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entries = Object.entries(value)
+    .map(([coordinacion, carreras]) => [safeString(coordinacion).trim(), safeArray(carreras).map((carrera) => safeString(carrera).trim()).filter(Boolean)])
+    .filter(([coordinacion]) => Boolean(coordinacion));
+
+  if (!entries.length) return null;
+  return entries.reduce((acc, [coordinacion, carreras]) => {
+    acc[coordinacion] = [...new Set(carreras)];
+    return acc;
+  }, {});
+};
+
+const saveAppDataToLocalStorage = () => {
+  const payload = {
+    clases: safeArray(state.clases),
+    docentes: safeArray(state.docentes),
+    areas: safeArray(state.areas),
+    matricula: state.matricula && typeof state.matricula === 'object' ? state.matricula : {},
+    schedules: state.schedules && typeof state.schedules === 'object' ? state.schedules : {},
+    seleccionActual: state.seleccionActual,
+    anioTrabajo: Number(state.anioTrabajo || 1),
+    maxEstudiantesPorGrupo: toPositiveNumber(state.maxEstudiantesPorGrupo, DEFAULT_MAX_ESTUDIANTES_POR_GRUPO),
+    coordinaciones,
+  };
+
+  try {
+    window.localStorage.setItem(APP_DATA_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('No se pudieron guardar los datos generales.', error);
+  }
+};
+
+const loadAppDataFromLocalStorage = () => {
+  try {
+    const raw = window.localStorage.getItem(APP_DATA_STORAGE_KEY);
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+
+    const loadedCoordinaciones = sanitizeCoordinaciones(parsed.coordinaciones);
+    if (loadedCoordinaciones) {
+      Object.keys(coordinaciones).forEach((key) => delete coordinaciones[key]);
+      Object.assign(coordinaciones, loadedCoordinaciones);
+    }
+
+    if (Array.isArray(parsed.clases)) state.clases = parsed.clases;
+    if (Array.isArray(parsed.docentes)) state.docentes = parsed.docentes;
+    if (Array.isArray(parsed.areas)) state.areas = [...new Set(parsed.areas.map((item) => safeString(item).trim()).filter(Boolean))];
+    if (parsed.matricula && typeof parsed.matricula === 'object') state.matricula = parsed.matricula;
+    if (parsed.schedules && typeof parsed.schedules === 'object') state.schedules = parsed.schedules;
+    if (parsed.seleccionActual && typeof parsed.seleccionActual === 'object') {
+      state.seleccionActual = {
+        ...state.seleccionActual,
+        ...parsed.seleccionActual,
+        turno: resolveTurnoName(parsed.seleccionActual.turno || state.seleccionActual.turno),
+      };
+    }
+
+    if (Number.isFinite(Number(parsed.anioTrabajo))) state.anioTrabajo = Number(parsed.anioTrabajo);
+    state.maxEstudiantesPorGrupo = toPositiveNumber(parsed.maxEstudiantesPorGrupo, DEFAULT_MAX_ESTUDIANTES_POR_GRUPO);
+  } catch (error) {
+    console.warn('No se pudieron cargar los datos generales.', error);
   }
 };
 
@@ -556,6 +624,7 @@ const processCsvImport = (file, context) => {
     }
 
     state.clases.push(...importedValid);
+    saveAppDataToLocalStorage();
     updateSeleccionActual();
     renderCatalogoTabla();
     setHint('carga-hint', `CSV importado. Nuevas: ${importedValid.length}.`);
@@ -630,6 +699,7 @@ const renderPlanGenerado = (plan, selection) => {
   if (selection) {
     const key = getSelectionKey(selection);
     state.schedules[key] = slots.map((slot) => ({ ...slot, docente: slot.docente || '' }));
+    saveAppDataToLocalStorage();
   }
   renderCurrentSelectionSchedule();
 };
@@ -757,6 +827,7 @@ const saveTurnoConfig = () => {
   };
 
   saveTurnoConfigToLocalStorage();
+  saveAppDataToLocalStorage();
   renderCatalogoTabla();
   applyDiasByTurnoToView(state.seleccionActual.turno);
   setHint('turno-hint', `Configuración de ${turno} guardada.`);
@@ -768,6 +839,7 @@ const resetTurnoConfig = () => {
 
   state.turnoConfig[turno] = getDefaultTurnoConfig(turno);
   saveTurnoConfigToLocalStorage();
+  saveAppDataToLocalStorage();
   loadTurno();
   applyDiasByTurnoToView(state.seleccionActual.turno);
   setHint('turno-hint', 'Valores restablecidos por defecto.');
@@ -867,6 +939,7 @@ const bindEvents = () => {
     renderCatalogoTabla();
     renderCurrentSelectionSchedule();
     setHint('asignacion-hint', `Clase "${clase}" agregada correctamente.`);
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-cambiar-clase')?.addEventListener('click', () => {
@@ -885,12 +958,14 @@ const bindEvents = () => {
     found.clase = nuevoNombre;
     renderCatalogoTabla();
     setHint('asignacion-hint', 'Clase actualizada correctamente.');
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-generar-auto')?.addEventListener('click', generarHorarioAutomatico);
   $id('btn-reiniciar-demo')?.addEventListener('click', () => {
     state.schedules = {};
     state.seleccionActual.grupo = 'G1';
+    saveAppDataToLocalStorage();
     renderCurrentSelectionSchedule();
     const consola = $id('generacion-console');
     if (consola) consola.textContent = 'Demo reiniciada. Puedes generar nuevamente.';
@@ -918,6 +993,7 @@ const bindEvents = () => {
 
     state.areas.push(area);
     setHint('docentes-hint', `Área "${area}" agregada correctamente.`);
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-nuevo-docente')?.addEventListener('click', () => {
@@ -939,6 +1015,7 @@ const bindEvents = () => {
     renderDocentes();
     renderCatalogoTabla();
     setHint('docentes-hint', `Docente "${nombre}" agregado correctamente.`);
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-asignar-docente')?.addEventListener('click', () => {
@@ -964,6 +1041,7 @@ const bindEvents = () => {
     clase.area = docente.area;
     renderCatalogoTabla();
     setHint('docentes-hint', `Docente "${docente.nombre}" asignado a "${clase.clase}".`);
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-agregar-coordinacion')?.addEventListener('click', () => {
@@ -985,6 +1063,7 @@ const bindEvents = () => {
     syncSelectValue('.js-coordinacion', nuevaCoordinacion);
     state.seleccionActual.coordinacion = nuevaCoordinacion;
     setHint('catalogo-hint', `Coordinación "${nuevaCoordinacion}" agregada.`);
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-agregar-carrera')?.addEventListener('click', () => {
@@ -1012,6 +1091,7 @@ const bindEvents = () => {
     state.seleccionActual.coordinacion = coordinacion;
     state.seleccionActual.carrera = nuevaCarrera;
     setHint('catalogo-hint', `Carrera "${nuevaCarrera}" agregada a ${coordinacion}.`);
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-guardar-matricula')?.addEventListener('click', () => {
@@ -1019,6 +1099,7 @@ const bindEvents = () => {
     const estudiantes = Math.max(Number($id('matricula-estudiantes')?.value) || 0, 0);
     state.matricula[carrera] = estudiantes;
     setHint('matricula-hint', `Matrícula guardada: ${carrera} (${estudiantes} estudiantes).`);
+    saveAppDataToLocalStorage();
   });
 
   $id('btn-agregar-periodo')?.addEventListener('click', () => {
@@ -1030,6 +1111,7 @@ const bindEvents = () => {
     state.periodosPorTurno[turno] = current;
     if ($id('nuevo-periodo')) $id('nuevo-periodo').value = '';
     savePeriodosToLocalStorage();
+    saveAppDataToLocalStorage();
     renderPeriodosUI();
   });
 
@@ -1040,6 +1122,7 @@ const bindEvents = () => {
     const turno = resolveTurnoName(getSelectValue('periodo-turno', state.seleccionActual.turno || 'Diurno'));
     state.periodosPorTurno[turno] = getPeriodosByTurno(turno).filter((item) => item !== periodo);
     savePeriodosToLocalStorage();
+    saveAppDataToLocalStorage();
     renderPeriodosUI();
   });
 
@@ -1047,6 +1130,7 @@ const bindEvents = () => {
     $id(id)?.addEventListener('change', (event) => {
       state.seleccionActual[key] = key === 'turno' ? resolveTurnoName(event.target.value) : event.target.value;
       syncAppFromSeleccionActual();
+      saveAppDataToLocalStorage();
     });
   };
 
@@ -1059,6 +1143,7 @@ const bindEvents = () => {
 };
 
 const init = () => {
+  loadAppDataFromLocalStorage();
   loadTurnoConfigFromLocalStorage();
   loadPeriodosFromLocalStorage();
   syncCoordinacionSelects();
