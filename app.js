@@ -10,6 +10,9 @@ const toPositiveNumber = (value, fallback) => {
 
 const DEFAULT_MAX_ESTUDIANTES_POR_GRUPO = 35;
 const TURNO_CONFIG_STORAGE_KEY = 'schedule.turnoConfig.v1';
+const VISTA_HORA_INICIO_MIN = 7 * 60;
+const VISTA_HORA_FIN_MIN = 16 * 60;
+const VISTA_DURACION_BLOQUE_MIN = 60;
 
 const tabs = document.querySelectorAll('.tab');
 const principalView = $id('principal-view');
@@ -273,9 +276,10 @@ const getBloqueRestriction = (start, end, cfg) => {
 
 const getBloquesVista = (turno) => {
   const cfg = getTurnoConfig(turno);
-  const totalBloques = Math.max(toPositiveNumber(cfg.maxTurnos, 4), 1);
-  const duracion = Math.max(toPositiveNumber(cfg.duracion, 45), 1);
-  const inicio = parseTimeToMinutes(cfg.horaInicio || '08:00');
+  const inicio = VISTA_HORA_INICIO_MIN;
+  const fin = VISTA_HORA_FIN_MIN;
+  const duracion = VISTA_DURACION_BLOQUE_MIN;
+  const totalBloques = Math.max(Math.floor((fin - inicio) / duracion), 1);
 
   return Array.from({ length: totalBloques }, (_, index) => {
     const start = inicio + (index * duracion);
@@ -725,6 +729,121 @@ const bindEvents = () => {
   $id('turno-config-select')?.addEventListener('change', loadTurno);
   $id('btn-guardar-turno')?.addEventListener('click', saveTurnoConfig);
   $id('btn-restablecer-turno')?.addEventListener('click', resetTurnoConfig);
+
+  $id('btn-nueva-area')?.addEventListener('click', () => {
+    const area = safeString(window.prompt('Nombre de la nueva área:')).trim();
+    if (!area) return;
+
+    const existe = safeArray(state.areas).some((item) => normalizeText(item) === normalizeText(area));
+    if (existe) {
+      setHint('docentes-hint', `El área "${area}" ya existe.`, false);
+      return;
+    }
+
+    state.areas.push(area);
+    setHint('docentes-hint', `Área "${area}" agregada correctamente.`);
+  });
+
+  $id('btn-nuevo-docente')?.addEventListener('click', () => {
+    const nombre = safeString(window.prompt('Nombre del docente:')).trim();
+    if (!nombre) return;
+
+    const area = safeString(window.prompt('Área del docente:', state.areas[0] || 'General')).trim() || 'General';
+    const existe = safeArray(state.docentes).some((docente) => normalizeText(docente.nombre) === normalizeText(nombre));
+    if (existe) {
+      setHint('docentes-hint', `El docente "${nombre}" ya existe.`, false);
+      return;
+    }
+
+    if (!safeArray(state.areas).some((item) => normalizeText(item) === normalizeText(area))) {
+      state.areas.push(area);
+    }
+
+    state.docentes.push({ nombre, area });
+    renderDocentes();
+    renderCatalogoTabla();
+    setHint('docentes-hint', `Docente "${nombre}" agregado correctamente.`);
+  });
+
+  $id('btn-asignar-docente')?.addEventListener('click', () => {
+    const claseNombre = safeString(window.prompt('Clase a la que deseas asignar docente:')).trim();
+    if (!claseNombre) return;
+
+    const clase = safeArray(state.clases).find((item) => normalizeText(item.clase) === normalizeText(claseNombre));
+    if (!clase) {
+      setHint('docentes-hint', 'No se encontró la clase indicada.', false);
+      return;
+    }
+
+    const docenteNombre = safeString(window.prompt('Nombre del docente:')).trim();
+    if (!docenteNombre) return;
+
+    const docente = safeArray(state.docentes).find((item) => normalizeText(item.nombre) === normalizeText(docenteNombre));
+    if (!docente) {
+      setHint('docentes-hint', `El docente "${docenteNombre}" no existe en el catálogo.`, false);
+      return;
+    }
+
+    clase.docente = docente.nombre;
+    clase.area = docente.area;
+    renderCatalogoTabla();
+    setHint('docentes-hint', `Docente "${docente.nombre}" asignado a "${clase.clase}".`);
+  });
+
+  $id('btn-agregar-coordinacion')?.addEventListener('click', () => {
+    const nuevaCoordinacion = safeString($id('nueva-coordinacion')?.value).trim();
+    if (!nuevaCoordinacion) {
+      setHint('catalogo-hint', 'Escribe el nombre de la coordinación.', false);
+      return;
+    }
+
+    if (coordinaciones[nuevaCoordinacion]) {
+      setHint('catalogo-hint', 'La coordinación ya existe.', false);
+      return;
+    }
+
+    coordinaciones[nuevaCoordinacion] = [];
+    if ($id('nueva-coordinacion')) $id('nueva-coordinacion').value = '';
+    syncCoordinacionSelects(nuevaCoordinacion);
+    syncCarreraSelects();
+    syncSelectValue('.js-coordinacion', nuevaCoordinacion);
+    state.seleccionActual.coordinacion = nuevaCoordinacion;
+    setHint('catalogo-hint', `Coordinación "${nuevaCoordinacion}" agregada.`);
+  });
+
+  $id('btn-agregar-carrera')?.addEventListener('click', () => {
+    const coordinacion = getSelectValue('coordinacion-config', 'Arquitectura');
+    const nuevaCarrera = safeString($id('nueva-carrera')?.value).trim();
+
+    if (!nuevaCarrera) {
+      setHint('catalogo-hint', 'Escribe el nombre de la carrera.', false);
+      return;
+    }
+
+    if (!coordinaciones[coordinacion]) coordinaciones[coordinacion] = [];
+
+    const existe = coordinaciones[coordinacion].some((item) => normalizeText(item) === normalizeText(nuevaCarrera));
+    if (existe) {
+      setHint('catalogo-hint', 'La carrera ya existe en esa coordinación.', false);
+      return;
+    }
+
+    coordinaciones[coordinacion].push(nuevaCarrera);
+    if ($id('nueva-carrera')) $id('nueva-carrera').value = '';
+    syncCarreraSelects();
+    syncSelectValue('.js-coordinacion', coordinacion);
+    syncSelectValue('.js-carrera', nuevaCarrera);
+    state.seleccionActual.coordinacion = coordinacion;
+    state.seleccionActual.carrera = nuevaCarrera;
+    setHint('catalogo-hint', `Carrera "${nuevaCarrera}" agregada a ${coordinacion}.`);
+  });
+
+  $id('btn-guardar-matricula')?.addEventListener('click', () => {
+    const carrera = getSelectValue('matricula-carrera', state.seleccionActual.carrera);
+    const estudiantes = Math.max(Number($id('matricula-estudiantes')?.value) || 0, 0);
+    state.matricula[carrera] = estudiantes;
+    setHint('matricula-hint', `Matrícula guardada: ${carrera} (${estudiantes} estudiantes).`);
+  });
 
   const connectSelect = (id, key) => {
     $id(id)?.addEventListener('change', (event) => {
