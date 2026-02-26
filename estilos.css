@@ -351,6 +351,12 @@ th {
   background-clip: padding-box;
 }
 
+#vista-years .vista-table-year td {
+  vertical-align: middle;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
 #vista-years .vista-table-year th:last-child,
 #vista-years .vista-table-year td:last-child {
   border-right: 0;
@@ -372,6 +378,24 @@ th {
   bottom: 0;
   border-bottom: 1px solid #c7d2e3;
   pointer-events: none;
+  z-index: 0;
+}
+
+#vista-years .vista-table-year tbody td {
+  position: relative;
+  z-index: 1;
+}
+
+#vista-years .vista-table-year td[rowspan] {
+  background: #fff;
+}
+
+#vista-years .vista-table-year td[rowspan]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: inherit;
+  z-index: -1;
 }
 
 .modal {
