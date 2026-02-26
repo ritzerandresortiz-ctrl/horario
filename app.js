@@ -577,9 +577,11 @@ const paintSchedulesForAllYears = (selection) => {
   const yearSelection = { ...selection, anio };
   const slots = getOrCreateSchedule(yearSelection);
   const diasCount = Math.max(getDiasArray(selection.turno).length, 1);
+  const bloquesCount = Math.floor(slots.length / diasCount);
   const claseCells = [...document.querySelectorAll(`#vista-years .vista-clase[data-anio="${anio}"]`)];
   const aulaCells = [...document.querySelectorAll(`#vista-years .vista-aula[data-anio="${anio}"]`)];
   const maxLength = Math.max(claseCells.length, aulaCells.length);
+  const clasesVisibles = [];
 
   const resolveClaseVisible = (slotIndex) => {
     const slot = slots[slotIndex];
@@ -598,15 +600,68 @@ const paintSchedulesForAllYears = (selection) => {
   };
 
   for (let index = 0; index < maxLength; index += 1) {
+    clasesVisibles[index] = resolveClaseVisible(index);
+
     if (claseCells[index]) {
-      claseCells[index].textContent = resolveClaseVisible(index);
+      claseCells[index].textContent = clasesVisibles[index];
       claseCells[index].style.display = '';
       claseCells[index].classList.remove('is-continuacion');
+      claseCells[index].removeAttribute('rowspan');
     }
     if (aulaCells[index]) {
       aulaCells[index].textContent = slots[index]?.aula || '-';
       aulaCells[index].style.display = '';
       aulaCells[index].classList.remove('is-continuacion');
+      aulaCells[index].removeAttribute('rowspan');
+    }
+  }
+
+  const isClaseVacia = (value) => {
+    const normalized = normalizeText(value);
+    return !normalized || normalized === '-';
+  };
+
+  const shouldMergeWithNext = (baseIndex, nextIndex) => {
+    const baseClase = clasesVisibles[baseIndex];
+    const nextClase = clasesVisibles[nextIndex];
+    const baseAula = safeString(slots[baseIndex]?.aula).trim();
+    const nextAula = safeString(slots[nextIndex]?.aula).trim();
+    const nextSlot = slots[nextIndex];
+    const nextEsContinuacion = Boolean(nextSlot?.esContinuacion)
+      || normalizeText(nextSlot?.clase).includes('continuacion');
+
+    if (isClaseVacia(baseClase) || isClaseVacia(nextClase)) return false;
+    if (normalizeText(baseClase) !== normalizeText(nextClase)) return false;
+    if (baseAula && nextAula && normalizeText(baseAula) !== normalizeText(nextAula)) return false;
+
+    return nextEsContinuacion || normalizeText(baseClase) === normalizeText(nextClase);
+  };
+
+  for (let diaIndex = 0; diaIndex < diasCount; diaIndex += 1) {
+    for (let bloqueIndex = 0; bloqueIndex < bloquesCount; bloqueIndex += 1) {
+      const baseIndex = (bloqueIndex * diasCount) + diaIndex;
+      const baseClaseCell = claseCells[baseIndex];
+      const baseAulaCell = aulaCells[baseIndex];
+      if (!baseClaseCell || !baseAulaCell || baseClaseCell.style.display === 'none') continue;
+      if (isClaseVacia(clasesVisibles[baseIndex])) continue;
+
+      let span = 1;
+      while ((bloqueIndex + span) < bloquesCount) {
+        const nextIndex = ((bloqueIndex + span) * diasCount) + diaIndex;
+        if (!shouldMergeWithNext(baseIndex, nextIndex)) break;
+        span += 1;
+      }
+
+      if (span <= 1) continue;
+
+      baseClaseCell.rowSpan = span;
+      baseAulaCell.rowSpan = span;
+
+      for (let offset = 1; offset < span; offset += 1) {
+        const hideIndex = ((bloqueIndex + offset) * diasCount) + diaIndex;
+        if (claseCells[hideIndex]) claseCells[hideIndex].style.display = 'none';
+        if (aulaCells[hideIndex]) aulaCells[hideIndex].style.display = 'none';
+      }
     }
   }
 };
