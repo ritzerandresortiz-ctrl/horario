@@ -576,20 +576,37 @@ const paintSchedulesForAllYears = (selection) => {
   const anio = Number(selection.anio || state.anioTrabajo || 1);
   const yearSelection = { ...selection, anio };
   const slots = getOrCreateSchedule(yearSelection);
+  const diasCount = Math.max(getDiasArray(selection.turno).length, 1);
   const claseCells = [...document.querySelectorAll(`#vista-years .vista-clase[data-anio="${anio}"]`)];
   const aulaCells = [...document.querySelectorAll(`#vista-years .vista-aula[data-anio="${anio}"]`)];
   const maxLength = Math.max(claseCells.length, aulaCells.length);
 
+  const resolveClaseVisible = (slotIndex) => {
+    const slot = slots[slotIndex];
+    const clase = safeString(slot?.clase).trim();
+    const esEtiquetaContinuacion = normalizeText(clase).includes('continuacion');
+    if (!slot?.esContinuacion && !esEtiquetaContinuacion) return clase || '-';
+
+    for (let prev = slotIndex - diasCount; prev >= 0; prev -= diasCount) {
+      const anterior = slots[prev];
+      const claseAnterior = safeString(anterior?.clase).trim();
+      const anteriorEsContinuacion = Boolean(anterior?.esContinuacion)
+        || normalizeText(claseAnterior).includes('continuacion');
+      if (!anteriorEsContinuacion && claseAnterior && claseAnterior !== '-') return claseAnterior;
+    }
+    return '-';
+  };
+
   for (let index = 0; index < maxLength; index += 1) {
     if (claseCells[index]) {
-      claseCells[index].textContent = slots[index]?.clase || '-';
+      claseCells[index].textContent = resolveClaseVisible(index);
       claseCells[index].style.display = '';
-      claseCells[index].classList.toggle('is-continuacion', Boolean(slots[index]?.esContinuacion));
+      claseCells[index].classList.remove('is-continuacion');
     }
     if (aulaCells[index]) {
       aulaCells[index].textContent = slots[index]?.aula || '-';
       aulaCells[index].style.display = '';
-      aulaCells[index].classList.toggle('is-continuacion', Boolean(slots[index]?.esContinuacion));
+      aulaCells[index].classList.remove('is-continuacion');
     }
   }
 };
@@ -777,12 +794,12 @@ const generarPlanHorario = ({ turno, clases = [] }) => {
       const idx = slotIndex + (paso * diasCount);
       const isPrincipal = paso === 0;
       slots[idx] = {
-        clase: isPrincipal ? claseNombre : '↳ Continuación',
+        clase: claseNombre,
         aula: safeString(clase.aula).trim() || '-',
         docente: safeString(clase.docente).trim(),
         restriccion: '',
         ocupado: true,
-        esContinuacion: !isPrincipal,
+        esContinuacion: false,
         diaIndex,
       };
     }
