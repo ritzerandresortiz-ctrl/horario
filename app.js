@@ -648,6 +648,29 @@ const createClassFromCsvRow = (row, headers, context) => {
   };
 };
 
+const clearImportedCsvData = () => {
+  const before = safeArray(state.clases).length;
+  state.clases = safeArray(state.clases).filter((item) => {
+    const tags = safeArray(item?.caracteristicas).map((tag) => normalizeText(tag));
+    return !tags.includes('csv');
+  });
+
+  const removed = Math.max(before - state.clases.length, 0);
+  saveAppDataToLocalStorage();
+  updateSeleccionActual();
+  renderCatalogoTabla();
+
+  const input = $id('csv-input');
+  if (input) input.value = '';
+
+  if (!removed) {
+    setHint('carga-hint', 'No había datos importados por CSV para borrar.');
+    return;
+  }
+
+  setHint('carga-hint', `Datos CSV borrados: ${removed} clase(s).`);
+};
+
 const processCsvImport = (file, context) => {
   const reader = new FileReader();
   reader.onload = () => {
@@ -908,6 +931,23 @@ const exportVisibleYearToExcel = () => {
 
 const bindEvents = () => {
   $id('btn-menu')?.addEventListener('click', () => body.classList.toggle('sidebar-hidden'));
+
+  $id('btn-borrar-csv')?.addEventListener('click', () => {
+    const totalCsv = safeArray(state.clases).filter((item) => {
+      const tags = safeArray(item?.caracteristicas).map((tag) => normalizeText(tag));
+      return tags.includes('csv');
+    }).length;
+
+    if (!totalCsv) {
+      clearImportedCsvData();
+      return;
+    }
+
+    const ok = window.confirm(`Se borrarán ${totalCsv} clase(s) importadas por CSV. ¿Deseas continuar?`);
+    if (!ok) return;
+
+    clearImportedCsvData();
+  });
 
   $id('btn-importar-csv')?.addEventListener('click', () => {
     const file = $id('csv-input')?.files?.[0];

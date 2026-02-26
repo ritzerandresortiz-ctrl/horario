@@ -201,6 +201,18 @@ button {
   background: #f6f8ff;
 }
 
+
+.file-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-danger {
+  background: #ffe9e9;
+  border-color: #d9534f;
+  color: #b23a36;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
