@@ -568,23 +568,51 @@ const generarPlanHorario = ({ turno, clases = [] }) => {
   const slots = createSlotsForTurno(turno);
   const dias = getDiasArray(turno);
   const diasCount = Math.max(dias.length, 1);
+  const cfg = getTurnoConfig(turno);
+  const creditosBasePorBloque = Math.max(toPositiveNumber(cfg.creditos, 1), 1);
+
+  const getBloquesNecesarios = (clase) => {
+    const creditosClase = Math.max(toPositiveNumber(clase?.creditos, 1), 1);
+    return Math.max(Math.ceil(creditosClase / creditosBasePorBloque), 1);
+  };
+
+  const slotDisponibleParaClase = (slot) => !slot.restriccion && slot.clase === '-' && !slot.ocupado;
+
+  const puedeUbicarEnDia = (startIdx, bloquesNecesarios, diaIndex) => {
+    for (let paso = 0; paso < bloquesNecesarios; paso += 1) {
+      const idx = startIdx + (paso * diasCount);
+      if (!slots[idx] || (idx % diasCount) !== diaIndex || !slotDisponibleParaClase(slots[idx])) return false;
+    }
+    return true;
+  };
 
   safeArray(clases).forEach((clase, index) => {
     const claseNombre = safeString(clase.clase).trim() || `Clase ${index + 1}`;
+    const bloquesNecesarios = getBloquesNecesarios(clase);
+
     const slotIndex = slots.findIndex((slot, idx) => {
-      if (slot.restriccion || slot.clase !== '-') return false;
+      if (!slotDisponibleParaClase(slot)) return false;
       const diaIndex = idx % diasCount;
       const claseRepetidaEnDia = slots.some((item, pos) => (pos % diasCount) === diaIndex && normalizeText(item.clase) === normalizeText(claseNombre));
-      return !claseRepetidaEnDia;
+      if (claseRepetidaEnDia) return false;
+      return puedeUbicarEnDia(idx, bloquesNecesarios, diaIndex);
     });
     if (slotIndex === -1) return;
 
-    slots[slotIndex] = {
-      clase: claseNombre,
-      aula: safeString(clase.aula).trim() || '-',
-      docente: safeString(clase.docente).trim(),
-      restriccion: '',
-    };
+    const diaIndex = slotIndex % diasCount;
+    for (let paso = 0; paso < bloquesNecesarios; paso += 1) {
+      const idx = slotIndex + (paso * diasCount);
+      const isPrincipal = paso === 0;
+      slots[idx] = {
+        clase: isPrincipal ? claseNombre : '↳ Continuación',
+        aula: safeString(clase.aula).trim() || '-',
+        docente: safeString(clase.docente).trim(),
+        restriccion: '',
+        ocupado: true,
+        esContinuacion: !isPrincipal,
+        diaIndex,
+      };
+    }
 
   });
 
