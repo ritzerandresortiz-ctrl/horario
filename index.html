@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Generador de Horarios</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="btn-menu" class="icon-btn" aria-label="Menú">☰</button>
+    <h1>Universidad de Ciencias Comerciales · Generador de Horarios</h1>
+  </header>
+
+  <aside class="sidebar">
+    <h2>Navegación rápida</h2>
+    <nav>
+      <a href="#carga">1) Carga CSV y clases</a>
+      <a href="#asignacion">2) Asignación / cambios manuales</a>
+      <a href="#generacion">3) Generación automática</a>
+      <a href="#vista">4) Vista por coordinación/carrera/turno</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <div class="view active" id="principal-view">
+      <section class="panel" id="carga">
+        <h3>1) Cargar clases por CSV y listado de clases</h3>
+        <p class="hint">Columnas esperadas: clase,creditos,compartida,anio,categoria,tipo,aula,docente</p>
+
+        <div class="row-3">
+          <div>
+            <label>Coordinación</label>
+            <select id="carga-coordinacion" class="js-coordinacion"><option>Arquitectura</option></select>
+          </div>
+          <div>
+            <label>Carrera</label>
+            <select id="carga-carrera" class="js-carrera"><option>Diseño Gráfico</option></select>
+          </div>
+          <div>
+            <label>Turno</label>
+            <select id="carga-turno" class="js-turno"><option>Diurno</option></select>
+          </div>
+        </div>
+
+        <div class="file-row">
+          <input id="csv-input" type="file" accept=".csv">
+          <button id="btn-importar-csv" class="btn-primary">Importar CSV</button>
+        </div>
+
+        <p class="hint" id="carga-hint">Sin importación todavía.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Coordinación</th><th>Carrera</th><th>Clase</th><th>Aula</th><th>Características</th><th>Docente preferido</th><th>Área</th>
+            </tr>
+          </thead>
+          <tbody id="clases-tbody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel" id="asignacion">
+        <h3>2) Asignación y cambios manuales</h3>
+        <div class="row-2">
+          <div><label>Coordinación</label><select id="asignacion-coordinacion" class="js-coordinacion"><option>Arquitectura</option></select></div>
+          <div><label>Turno</label><select id="asignacion-turno" class="js-turno"><option>Diurno</option></select></div>
+        </div>
+        <div class="btn-row">
+          <button id="btn-agregar-manual" class="btn-dark">Agregar clase manualmente</button>
+          <button id="btn-cambiar-clase" class="btn-outline">Cambiar clase existente</button>
+        </div>
+        <p class="hint" id="asignacion-hint">Sin acciones todavía.</p>
+      </section>
+
+      <section class="panel" id="generacion">
+        <h3>3) Generación automática por carrera</h3>
+        <p class="hint">Genera horario únicamente para la coordinación/carrera/turno seleccionadas en la carga CSV.</p>
+        <div class="row-3">
+          <div><label>Coordinación</label><select class="js-coordinacion"><option>Arquitectura</option></select></div>
+          <div><label>Carrera</label><select id="generacion-carrera" class="js-carrera"><option>Arquitectura</option></select></div>
+          <div><label>Turno</label><select id="generacion-turno" class="js-turno"><option>Diurno</option></select></div>
+        </div>
+        <div class="row-2">
+          <button id="btn-generar-auto" class="btn-dark">Generar automáticamente</button>
+          <button id="btn-reiniciar-demo" class="btn-outline">Reiniciar demo</button>
+        </div>
+        <div id="generacion-console" class="console">Debes seleccionar/completar clases cargadas por CSV para la selección actual, o que la selección de generación automática coincida con la selección realizada en el módulo CSV.</div>
+      </section>
+
+      <section class="panel" id="vista">
+        <h3>4) Vista por coordinación / carrera / turno</h3>
+        <div class="row-3">
+          <div><label>Coordinación</label><select class="js-coordinacion"><option>Arquitectura</option></select></div>
+          <div><label>Carrera</label><select class="js-carrera"><option>Arquitectura</option></select></div>
+          <div><label>Turno</label><select id="vista-turno" class="js-turno"><option>Dominical</option></select></div>
+        </div>
+        <table id="vista-table">
+          <thead id="vista-thead"></thead>
+          <tbody id="vista-tbody"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="view" id="config-view">
+      <section class="panel">
+        <h3>⚙️ Configuración por turno</h3>
+        <p class="hint">Define duración de bloque, créditos, días habilitados y máximo de turnos por día.</p>
+        <label>Turno</label>
+        <select id="turno-config-select">
+          <option>Diurno</option>
+          <option>Sabatino</option>
+          <option>Nocturno</option>
+          <option>Dominical</option>
+        </select>
+
+        <div class="row-3">
+          <div>
+            <label>Hora de inicio</label>
+            <input id="turno-hora-inicio" type="time" value="08:00">
+          </div>
+          <div>
+            <label>Duración por bloque (min)</label>
+            <input id="turno-duracion" type="number" value="45">
+          </div>
+          <div>
+            <label>Créditos por bloque</label>
+            <input id="turno-creditos" type="number" value="1">
+          </div>
+          <div>
+            <label>Máx. turnos por día (carrera)</label>
+            <input id="turno-max-turnos" type="number" value="4">
+          </div>
+        </div>
+
+        <label>Días habilitados (separados por coma)</label>
+        <input id="turno-dias" type="text" value="Lunes,Martes,Miércoles,Jueves,Viernes" readonly>
+
+        <label>Aula para este turno</label>
+        <input id="turno-aula" type="text" value="" placeholder="Ej. A-101">
+
+        <div class="row-4">
+          <div>
+            <label>Receso (inicio - fin)</label>
+            <div class="row-2 compact-row">
+              <input id="turno-receso-inicio" type="time">
+              <input id="turno-receso-fin" type="time">
+            </div>
+          </div>
+          <div>
+            <label>Almuerzo (inicio - fin)</label>
+            <div class="row-2 compact-row">
+              <input id="turno-almuerzo-inicio" type="time">
+              <input id="turno-almuerzo-fin" type="time">
+            </div>
+          </div>
+        </div>
+
+        <div class="inline-actions">
+          <button id="btn-guardar-turno" class="btn-primary">Guardar turno</button>
+          <button id="btn-restablecer-turno" class="btn-dark">Restablecer por defecto</button>
+        </div>
+        <p class="hint" id="turno-hint">Sin cambios.</p>
+      </section>
+
+      <section class="panel">
+        <h3>👥 Gestión de docentes y áreas</h3>
+        <div class="inline-actions">
+          <button id="btn-nueva-area" class="btn-outline">＋ Nueva área</button>
+          <button id="btn-nuevo-docente" class="btn-outline">👤 Nuevo docente</button>
+          <button id="btn-asignar-docente" class="btn-outline">🔗 Asignar docente a clase</button>
+        </div>
+        <p class="hint" id="docentes-hint">Catálogos listos.</p>
+        <table>
+          <thead><tr><th>Docente</th><th>Áreas</th></tr></thead>
+          <tbody id="docentes-tbody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h3>🏫 Coordinaciones y carreras</h3>
+        <p class="hint">Registra coordinaciones y asocia sus carreras para que estén disponibles en filtros y matrícula.</p>
+        <div class="row-2">
+          <div>
+            <label>Nueva coordinación</label>
+            <input id="nueva-coordinacion" type="text" placeholder="Ej. Ingeniería">
+          </div>
+          <div class="align-end">
+            <button id="btn-agregar-coordinacion" class="btn-dark full">Agregar coordinación</button>
+          </div>
+        </div>
+        <div class="row-2">
+          <div>
+            <label>Coordinación</label>
+            <select id="coordinacion-config" class="js-coordinacion"><option>Arquitectura</option></select>
+          </div>
+          <div>
+            <label>Nueva carrera</label>
+            <input id="nueva-carrera" type="text" placeholder="Ej. Ingeniería Industrial">
+          </div>
+        </div>
+        <div class="inline-actions">
+          <button id="btn-agregar-carrera" class="btn-primary">Agregar carrera a coordinación</button>
+        </div>
+        <p class="hint" id="catalogo-hint">Sin cambios.</p>
+      </section>
+
+      <section class="panel">
+        <h3>🎓 Matrícula por periodo y carrera</h3>
+        <p class="hint">Configura estudiantes por carrera para el periodo activo. Esto se usa para crear grupos automáticos.</p>
+        <label>Carrera</label>
+        <select id="matricula-carrera" class="js-carrera"><option>Arquitectura</option></select>
+        <label>Estudiantes en periodo activo</label>
+        <input id="matricula-estudiantes" type="number" value="0">
+        <div class="inline-actions">
+          <button id="btn-guardar-matricula" class="btn-primary">Guardar matrícula</button>
+        </div>
+        <p class="hint" id="matricula-hint">Sin cambios.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bottom-tabs">
+    <button class="tab active" data-tab="principal">📄 Principal</button>
+    <button class="tab" data-tab="config">⚙️ Configuración</button>
+  </footer>
+
+  <div id="slot-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="slot-modal-title">
+    <div class="modal-card">
+      <h3 id="slot-modal-title">Asignar clase al horario</h3>
+      <p class="hint" id="slot-modal-context">Selecciona los datos del slot.</p>
+      <div class="row-2">
+        <div>
+          <label for="slot-dia">Día</label>
+          <select id="slot-dia"></select>
+        </div>
+        <div>
+          <label for="slot-bloque">Bloque</label>
+          <select id="slot-bloque"></select>
+        </div>
+      </div>
+      <div class="row-3">
+        <div>
+          <label for="slot-clase">Clase</label>
+          <select id="slot-clase"></select>
+        </div>
+        <div>
+          <label for="slot-aula">Aula</label>
+          <select id="slot-aula"></select>
+        </div>
+        <div>
+          <label for="slot-docente">Docente</label>
+          <select id="slot-docente"></select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="btn-slot-cancelar" class="btn-outline">Cancelar</button>
+        <button id="btn-slot-guardar" class="btn-dark">Asignar al slot</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
