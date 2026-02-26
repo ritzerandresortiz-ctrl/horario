@@ -680,6 +680,28 @@ const filtrarClasesPorSeleccion = ({ coordinacion, carrera, turno, anio }) => sa
   return matchCoord && matchCarrera && matchTurno && matchAnio;
 });
 
+const getClassIdentityKey = (item = {}) => ([
+  normalizeText(item.coordinacion),
+  normalizeText(item.carrera),
+  normalizeTurno(resolveTurnoName(item.turno || 'Diurno')),
+  Number(item.anio || 1),
+  normalizeText(item.clase),
+].join('|'));
+
+const mergeUniqueClasses = (currentClasses = [], incomingClasses = []) => {
+  const uniques = [];
+  const seen = new Set();
+
+  [...safeArray(currentClasses), ...safeArray(incomingClasses)].forEach((item) => {
+    const key = getClassIdentityKey(item);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    uniques.push(item);
+  });
+
+  return uniques;
+};
+
 const parseCsvRows = (text) => {
   const lines = safeString(text).trim().split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return { ok: false, message: 'El CSV no contiene datos válidos.' };
@@ -793,11 +815,13 @@ const processCsvImport = (file, context) => {
       return;
     }
 
-    state.clases.push(...importedValid);
+    const before = safeArray(state.clases).length;
+    state.clases = mergeUniqueClasses(state.clases, importedValid);
+    const added = Math.max(state.clases.length - before, 0);
     saveAppDataToLocalStorage();
     updateSeleccionActual();
     renderCatalogoTabla();
-    setHint('carga-hint', `CSV importado. Nuevas: ${importedValid.length}.`);
+    setHint('carga-hint', `CSV importado. Nuevas: ${added}.`);
   };
 
   reader.readAsText(file);
@@ -813,15 +837,15 @@ const generarPlanHorario = ({ turno, clases = [] }) => {
   const slots = createSlotsForTurno(selection);
   const dias = getDiasArray(turno);
   const diasCount = Math.max(dias.length, 1);
+  const bloquesCount = Math.floor(slots.length / diasCount);
   const cfg = getTurnoConfig(turno);
-  const creditosBasePorBloque = Math.max(toPositiveNumber(cfg.creditos, 1), 1);
 
   const getBloquesNecesarios = (clase) => {
-    const creditosClase = Math.max(toPositiveNumber(clase?.creditos, 1), 1);
-    return Math.max(Math.ceil(creditosClase / creditosBasePorBloque), 1);
+    const creditosClase = Math.max(Math.round(toPositiveNumber(clase?.creditos, 1)), 1);
+    return creditosClase;
   };
 
-  const slotDisponibleParaClase = (slot) => !slot.restriccion && slot.clase === '-' && !slot.ocupado;
+  const slotDisponibleParaClase = (slot) => !slot?.restriccion && slot?.clase === '-' && !slot?.ocupado;
 
   const puedeUbicarEnDia = (startIdx, bloquesNecesarios, diaIndex) => {
     for (let paso = 0; paso < bloquesNecesarios; paso += 1) {
@@ -831,39 +855,66 @@ const generarPlanHorario = ({ turno, clases = [] }) => {
     return true;
   };
 
+  const prioridadMap = safeArray(cfg?.prioridadDias)
+    .map((entry, idx) => ({
+      dia: safeString(entry?.dia).trim(),
+      prioridad: toPositiveNumber(entry?.prioridad, idx + 1),
+    }))
+    .filter((entry) => entry.dia)
+    .reduce((acc, entry) => {
+      acc[entry.dia] = entry.prioridad;
+      return acc;
+    }, {});
+
+  const diasOrdenados = dias
+    .map((dia, index) => ({
+      index,
+      prioridad: prioridadMap[dia] ?? (index + 1),
+    }))
+    .sort((a, b) => a.prioridad - b.prioridad)
+    .map((item) => item.index);
+
+  const buscarInicioConsecutivo = (bloquesNecesarios, claseNombre) => {
+    for (const diaIndex of diasOrdenados) {
+      const claseRepetidaEnDia = slots.some((item, pos) => (pos % diasCount) === diaIndex && normalizeText(item.clase) === normalizeText(claseNombre));
+      if (claseRepetidaEnDia) continue;
+
+      for (let bloqueIndex = 0; bloqueIndex <= (bloquesCount - bloquesNecesarios); bloqueIndex += 1) {
+        const startIdx = (bloqueIndex * diasCount) + diaIndex;
+        if (puedeUbicarEnDia(startIdx, bloquesNecesarios, diaIndex)) return startIdx;
+      }
+    }
+    return -1;
+  };
+
   safeArray(clases).forEach((clase, index) => {
     const claseNombre = safeString(clase.clase).trim() || `Clase ${index + 1}`;
     const bloquesNecesarios = getBloquesNecesarios(clase);
-
-    const slotIndex = slots.findIndex((slot, idx) => {
-      if (!slotDisponibleParaClase(slot)) return false;
-      const diaIndex = idx % diasCount;
-      const claseRepetidaEnDia = slots.some((item, pos) => (pos % diasCount) === diaIndex && normalizeText(item.clase) === normalizeText(claseNombre));
-      if (claseRepetidaEnDia) return false;
-      return puedeUbicarEnDia(idx, bloquesNecesarios, diaIndex);
-    });
+    const slotIndex = buscarInicioConsecutivo(bloquesNecesarios, claseNombre);
     if (slotIndex === -1) return;
 
     const diaIndex = slotIndex % diasCount;
+    const claseId = `${getClassIdentityKey(clase)}|${index}`;
+
     for (let paso = 0; paso < bloquesNecesarios; paso += 1) {
       const idx = slotIndex + (paso * diasCount);
-      const isPrincipal = paso === 0;
       slots[idx] = {
         clase: claseNombre,
         aula: safeString(clase.aula).trim() || '-',
         docente: safeString(clase.docente).trim(),
         restriccion: '',
         ocupado: true,
-        esContinuacion: false,
+        esContinuacion: paso > 0,
+        claseId,
         diaIndex,
       };
     }
-
   });
 
   return {
     slots,
-    clasesAsignadas: safeArray(slots).filter((slot) => slot.clase !== '-' && !slot.restriccion).length,
+    clasesAsignadas: safeArray(clases).filter((clase, index) => slots.some((slot) => slot?.claseId === `${getClassIdentityKey(clase)}|${index}`)).length,
+    bloquesAsignados: safeArray(slots).filter((slot) => slot.clase !== '-' && !slot.restriccion).length,
     bloquesRestringidos: safeArray(slots).filter((slot) => Boolean(slot.restriccion)).length,
     clasesEnConflicto: [],
     clasesNoAsignadas: [],
@@ -929,12 +980,14 @@ const generarHorarioAutomatico = () => {
   const clasesSeleccion = filtrarClasesPorSeleccion({ ...seleccion, anio });
   const plan = generarPlanHorario({ turno: seleccion.turno, clases: clasesSeleccion });
   renderPlanGenerado(plan, { ...seleccion, anio });
-  const totalAsignadas = plan.clasesAsignadas;
+  const totalClasesAsignadas = plan.clasesAsignadas;
+  const totalBloquesAsignados = plan.bloquesAsignados || 0;
 
   renderCurrentSelectionSchedule();
   if (consola) {
     consola.textContent = `Horario generado para ${seleccion.coordinacion} / ${seleccion.carrera} / ${seleccion.turno} (${seleccion.periodo || 'sin periodo'}).
-Bloques asignados: ${totalAsignadas}.`;
+Clases asignadas: ${totalClasesAsignadas}.
+Bloques ocupados (45 min c/u): ${totalBloquesAsignados}.`;
   }
 };
 
@@ -1090,7 +1143,7 @@ const bindEvents = () => {
     const tipoClase = safeString(window.prompt('Tipo de clase (ejemplo: aula, laboratorio, taller):', 'aula')).trim() || 'aula';
 
     const anio = Number(getSelectValue('asignacion-anio', '1')) || 1;
-    state.clases.push({
+    const nuevaClase = {
       coordinacion: state.seleccionActual.coordinacion,
       carrera: state.seleccionActual.carrera,
       turno: resolveTurnoName(state.seleccionActual.turno || 'Diurno'),
@@ -1102,7 +1155,15 @@ const bindEvents = () => {
       docente: safeString(docente).trim(),
       area: 'Por asignar',
       aula: safeString(aula).trim(),
-    });
+    };
+
+    const yaExiste = safeArray(state.clases).some((item) => getClassIdentityKey(item) === getClassIdentityKey(nuevaClase));
+    if (yaExiste) {
+      setHint('asignacion-hint', `La clase "${clase.trim()}" ya existe para ese año/turno/carrera.`, false);
+      return;
+    }
+
+    state.clases.push(nuevaClase);
 
     const slotPrompt = safeString(window.prompt('Slot a ocupar (formato día,bloque. Ej: 1,2). Opcional:')).trim();
     if (slotPrompt) {
