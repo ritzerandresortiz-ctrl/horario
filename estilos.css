@@ -220,6 +220,15 @@ table {
   background: #fff;
 }
 
+#vista-years {
+  overflow-x: auto;
+}
+
+.vista-table-year {
+  min-width: 100%;
+  table-layout: fixed;
+}
+
 th,
 td {
   border-top: 1px solid #d6deea;

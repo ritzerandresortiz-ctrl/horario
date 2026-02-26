@@ -413,11 +413,22 @@ const getBloqueRestriction = (start, end, cfg) => {
   return '';
 };
 
-const getBloquesVista = (turno) => {
+const getBloquesNecesariosParaClases = (turno, clases = []) => {
+  const cfg = getTurnoConfig(turno);
+  const creditosBasePorBloque = Math.max(toPositiveNumber(cfg.creditos, 1), 1);
+  const total = safeArray(clases).reduce((acc, clase) => {
+    const creditosClase = Math.max(toPositiveNumber(clase?.creditos, 1), 1);
+    return acc + Math.max(Math.ceil(creditosClase / creditosBasePorBloque), 1);
+  }, 0);
+  return Math.max(total, 1);
+};
+
+const getBloquesVista = (turno, totalBloquesOverride) => {
   const cfg = getTurnoConfig(turno);
   const inicio = parseTimeToMinutes(cfg.horaInicio || getDefaultTurnoConfig(turno).horaInicio);
   const duracion = Math.max(toPositiveNumber(cfg.duracion, getDefaultTurnoConfig(turno).duracion), 1);
-  const totalBloques = Math.max(Math.floor(toPositiveNumber(cfg.maxTurnos, getDefaultTurnoConfig(turno).maxTurnos)), 1);
+  const maxTurnosConfigurados = Math.max(Math.floor(toPositiveNumber(cfg.maxTurnos, getDefaultTurnoConfig(turno).maxTurnos)), 1);
+  const totalBloques = Math.max(Math.floor(toPositiveNumber(totalBloquesOverride, maxTurnosConfigurados)), maxTurnosConfigurados, 1);
 
   return Array.from({ length: totalBloques }, (_, index) => {
     const start = inicio + (index * duracion);
@@ -435,9 +446,20 @@ const getDiasArray = (turno) => safeString(getDiasPorTurno(turno), 'Día')
   .map((dia) => dia.trim())
   .filter(Boolean);
 
-const createSlotsForTurno = (turno) => {
-  const bloques = getBloquesVista(turno);
-  const dias = getDiasArray(turno);
+const getBloquesRequeridosPorSeleccion = (selection) => {
+  const clasesSeleccion = filtrarClasesPorSeleccion(selection);
+  const bloquesNecesarios = getBloquesNecesariosParaClases(selection.turno, clasesSeleccion);
+  const maxTurnosConfigurados = Math.max(
+    toPositiveNumber(getTurnoConfig(selection.turno).maxTurnos, getDefaultTurnoConfig(selection.turno).maxTurnos),
+    1,
+  );
+  return Math.max(maxTurnosConfigurados, bloquesNecesarios);
+};
+
+const createSlotsForTurno = (selection) => {
+  const totalBloques = getBloquesRequeridosPorSeleccion(selection);
+  const bloques = getBloquesVista(selection.turno, totalBloques);
+  const dias = getDiasArray(selection.turno);
   const diasCount = Math.max(dias.length, 1);
   return bloques.flatMap((bloque) => Array.from({ length: diasCount }, () => ({
     clase: bloque.restriccion || '-',
@@ -449,7 +471,34 @@ const createSlotsForTurno = (turno) => {
 
 const getOrCreateSchedule = (selection) => {
   const key = getSelectionKey(selection);
-  if (!state.schedules[key]) state.schedules[key] = createSlotsForTurno(selection.turno);
+  const diasCount = Math.max(getDiasArray(selection.turno).length, 1);
+  const totalBloques = getBloquesRequeridosPorSeleccion(selection);
+  const bloques = getBloquesVista(selection.turno, totalBloques);
+  const expectedSlots = bloques.length * diasCount;
+
+  if (!state.schedules[key]) {
+    state.schedules[key] = createSlotsForTurno(selection);
+    return state.schedules[key];
+  }
+
+  const schedule = safeArray(state.schedules[key]);
+  if (schedule.length === expectedSlots) return schedule;
+
+  const resized = bloques.flatMap((bloque, bloqueIndex) => Array.from({ length: diasCount }, (_, diaIndex) => {
+    const oldIndex = (bloqueIndex * diasCount) + diaIndex;
+    const oldSlot = schedule[oldIndex] || {};
+    return {
+      clase: oldSlot.clase || bloque.restriccion || '-',
+      aula: oldSlot.aula || '-',
+      docente: oldSlot.docente || '',
+      restriccion: bloque.restriccion || '',
+      ocupado: Boolean(oldSlot.ocupado),
+      esContinuacion: Boolean(oldSlot.esContinuacion),
+      diaIndex,
+    };
+  }));
+
+  state.schedules[key] = resized;
   return state.schedules[key];
 };
 
@@ -477,7 +526,7 @@ const renderVistaTablesByYear = (selection) => {
   if (!container) return;
   const dias = getDiasArray(selection.turno);
   const safeDias = dias.length ? dias : ['Día'];
-  const bloquesVista = getBloquesVista(selection.turno);
+  const bloquesVista = getBloquesVista(selection.turno, getBloquesRequeridosPorSeleccion(selection));
   const anio = Number(selection.anio || state.anioTrabajo || 1);
 
   container.innerHTML = [anio].map((anio) => {
@@ -531,7 +580,7 @@ const paintSchedulesForAllYears = (selection) => {
   const slots = getOrCreateSchedule(yearSelection);
   const dias = getDiasArray(selection.turno);
   const diasCount = Math.max(dias.length, 1);
-  const bloquesCount = getBloquesVista(selection.turno).length;
+  const bloquesCount = getBloquesVista(selection.turno, getBloquesRequeridosPorSeleccion(selection)).length;
   const claseCells = [...document.querySelectorAll(`#vista-years .vista-clase[data-anio="${anio}"]`)];
   const aulaCells = [...document.querySelectorAll(`#vista-years .vista-aula[data-anio="${anio}"]`)];
   const maxLength = Math.max(claseCells.length, aulaCells.length);
@@ -649,10 +698,30 @@ const createClassFromCsvRow = (row, headers, context) => {
 };
 
 const clearImportedCsvData = () => {
+  const clasesCsv = new Set(
+    safeArray(state.clases)
+      .filter((item) => safeArray(item?.caracteristicas).map((tag) => normalizeText(tag)).includes('csv'))
+      .map((item) => normalizeText(item?.clase)),
+  );
+
   const before = safeArray(state.clases).length;
   state.clases = safeArray(state.clases).filter((item) => {
     const tags = safeArray(item?.caracteristicas).map((tag) => normalizeText(tag));
     return !tags.includes('csv');
+  });
+
+  Object.keys(state.schedules || {}).forEach((key) => {
+    state.schedules[key] = safeArray(state.schedules[key]).map((slot) => {
+      if (!clasesCsv.has(normalizeText(slot?.clase))) return slot;
+      return {
+        ...slot,
+        clase: '-',
+        aula: '-',
+        docente: '',
+        ocupado: false,
+        esContinuacion: false,
+      };
+    });
   });
 
   const removed = Math.max(before - state.clases.length, 0);
@@ -700,7 +769,13 @@ const processCsvImport = (file, context) => {
 };
 
 const generarPlanHorario = ({ turno, clases = [] }) => {
-  const slots = createSlotsForTurno(turno);
+  const selection = {
+    coordinacion: state.seleccionActual.coordinacion,
+    carrera: state.seleccionActual.carrera,
+    turno,
+    anio: Number(state.anioTrabajo || 1),
+  };
+  const slots = createSlotsForTurno(selection);
   const dias = getDiasArray(turno);
   const diasCount = Math.max(dias.length, 1);
   const cfg = getTurnoConfig(turno);
