@@ -220,6 +220,14 @@ table {
   background: #fff;
 }
 
+tr {
+  border-bottom: 1px solid #d6deea;
+}
+
+thead tr {
+  border-top: 1px solid #d6deea;
+}
+
 #vista-years {
   overflow-x: auto;
 }
@@ -231,7 +239,6 @@ table {
 
 th,
 td {
-  border-top: 1px solid #d6deea;
   padding: 8px;
   text-align: left;
 }
